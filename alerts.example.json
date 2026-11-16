@@ -1,0 +1,21 @@
+{
+  "webhook": "",
+  "email": {
+    "to": [],
+    "from": "",
+    "host": "",
+    "port": 25,
+    "starttls": false,
+    "username": "",
+    "password": ""
+  },
+  "dashboardUrl": "",
+  "dropMinMbps": 100,
+  "dropPercent": 75,
+  "dropMinClients": 10,
+  "linkSaturationPercent": 85,
+  "nearlyFullPercent": 95,
+  "minFreeGB": 20,
+  "errorsPerMinute": 30,
+  "notifyOnResolve": true
+}

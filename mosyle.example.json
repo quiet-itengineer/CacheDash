@@ -1,0 +1,8 @@
+{
+  "accessToken": "",
+  "email": "",
+  "password": "",
+  "os": ["ios", "macos"],
+  "refreshHours": 6,
+  "appsColumn": ""
+}

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key><string>com.apple.system.logging</string>
+      <key>PayloadIdentifier</key><string>local.cachedash.logging.payload</string>
+      <key>PayloadUUID</key><string>62676058-ED14-4123-A023-DAEC679303DD</string>
+      <key>PayloadVersion</key><integer>1</integer>
+      <key>PayloadDisplayName</key><string>AssetCache private log data</string>
+      <key>Subsystems</key>
+      <dict>
+        <key>com.apple.AssetCache</key>
+        <dict>
+          <key>DEFAULT-OPTIONS</key>
+          <dict><key>Enable-Private-Data</key><true/></dict>
+        </dict>
+      </dict>
+    </dict>
+  </array>
+  <key>PayloadDisplayName</key><string>CacheDash: show device details in AssetCache logs</string>
+  <key>PayloadDescription</key><string>Lets the CacheDash device widgets read client addresses and download names that macOS otherwise logs as &lt;private&gt;. Install only on the caching Mac, and only if the device widgets show redacted data.</string>
+  <key>PayloadIdentifier</key><string>local.cachedash.logging</string>
+  <key>PayloadOrganization</key><string>CacheDash</string>
+  <key>PayloadScope</key><string>System</string>
+  <key>PayloadType</key><string>Configuration</string>
+  <key>PayloadUUID</key><string>92544277-B643-46AE-BE0D-BA2D533B2CC3</string>
+  <key>PayloadVersion</key><integer>1</integer>
+</dict>
+</plist>
