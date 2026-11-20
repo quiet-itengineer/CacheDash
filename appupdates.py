@@ -179,11 +179,12 @@ class Mosyle:
         self.cfg = cfg
         self.base = (cfg.get("baseUrl") or MOSYLE).rstrip("/")
         self.token, self.token_at = None, 0
+        self.uses_login = bool(cfg.get("email") and cfg.get("password"))
 
     def _post(self, path, body, auth=True):
         body = {"accessToken": self.cfg["accessToken"], **body}
-        h = {"Content-Type": "application/json", **UA}
-        if auth:
+        h = {"Content-Type": "application/json", "accessToken": self.cfg["accessToken"], **UA}
+        if auth and self.uses_login:     # with no admin login set, the access token alone is sent
             if not self.token or time.time() - self.token_at > 20 * 3600:
                 self.login()
             h["Authorization"] = self.token
@@ -192,7 +193,9 @@ class Mosyle:
             with urllib.request.urlopen(req, timeout=90) as r:
                 return r, json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:
-            raise MosyleError(f"Mosyle answered HTTP {e.code} for {path}") from None
+            hint = (" With only an access token, Mosyle may also need an admin email and password in mosyle.json."
+                    if e.code in (401, 403) and not self.uses_login else "")
+            raise MosyleError(f"Mosyle answered HTTP {e.code} for {path}.{hint}") from None
 
     def login(self):
         req = urllib.request.Request(self.base + "/login", headers={"Content-Type": "application/json", **UA},
@@ -284,12 +287,15 @@ def check_mosyle(path):
         print(f"No usable Mosyle settings in {path}. Copy mosyle.example.json to mosyle.json and fill it in.")
         return
     m = Mosyle(cfg)
-    try:
-        m.login()
-        print("Login: OK")
-    except Exception as e:
-        print("Login FAILED:", e)
-        return
+    if m.uses_login:
+        try:
+            m.login()
+            print("Login with the admin account: OK")
+        except Exception as e:
+            print("Login FAILED:", e)
+            return
+    else:
+        print("No admin email/password in the settings: using the access token alone.")
     for osn in cfg.get("os") or ["ios", "macos"]:
         try:
             devs = m.list_devices(osn, None, max_pages=1)
@@ -328,7 +334,7 @@ def load_mosyle(path):
             cfg = json.load(f)
     except (OSError, ValueError):
         return None
-    if not all(cfg.get(k) for k in ("accessToken", "email", "password")):
+    if not cfg.get("accessToken"):      # an admin email and password are optional
         return None
     return cfg
 

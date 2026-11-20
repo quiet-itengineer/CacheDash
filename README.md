@@ -384,8 +384,8 @@ Upload a new report whenever you want fresh numbers. Each upload is compared wit
 
 Instead of uploading reports, CacheDash can fetch the inventory from your MDM by itself every 6 hours. This is currently available for **Mosyle Manager**. On **one** caching Mac:
 
-1. In Mosyle Manager, turn on the API integration in your organization settings and copy the **access token** (Mosyle's help centre shows where it is for your account). Create a dedicated admin account for CacheDash with the least access that can view devices.
-2. Copy `mosyle.example.json` to `mosyle.json` and fill in `accessToken`, `email` and `password`. Leave `"os"` as `["ios", "macos"]` (or remove one).
+1. In Mosyle Manager, turn on the API integration in your organization settings and copy the **access token** (Mosyle's help centre shows where it is for your account). If you use an admin login as well, make a dedicated admin account for CacheDash with the least access that can view devices.
+2. Copy `mosyle.example.json` to `mosyle.json` and fill in `accessToken`. If your Mosyle account also requires an admin login for the API, fill in `email` and `password` too; otherwise leave them empty and only the token is used. Leave `"os"` as `["ios", "macos"]` (or remove one).
 3. Reinstall (`sudo zsh install.sh`). The file is copied to `/usr/local/cachedash` and readable only by root.
 4. Check it works:
    ```

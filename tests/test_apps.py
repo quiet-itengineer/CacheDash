@@ -51,6 +51,10 @@ class Fake(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         Fake.calls.append(self.path)
+        if "/v2tok/" in self.path:
+            assert self.headers["accessToken"] == "a" and "Authorization" not in self.headers
+            page = body["options"]["page"]
+            return self._json({"status": "OK", "response": {"devices": MOSYLE_DEVICES if page == 1 else [], "rows": 2}})
         if self.path.endswith("/login"):
             return self._json({}, {"Authorization": "Bearer tok"}) if body.get("password") == "pw" else self._json({})
         assert self.headers["Authorization"] == "Bearer tok"
@@ -139,6 +143,11 @@ class AppTests(unittest.TestCase):
                          {("S1", "com.google.Docs", "1.2026.2"), ("S1", "com.apple.Keynote", "14.4"), ("S2", "com.google.Docs", "1.2026.4")})
         with self.assertRaises(appupdates.MosyleError):
             appupdates.Mosyle({**cfg, "password": "wrong"}).login()
+        # token only: no login, the token goes in the header and body
+        tok = appupdates.Mosyle({"accessToken": "a", "baseUrl": self.base + "/v2tok", "os": ["ios"]})
+        self.assertFalse(tok.uses_login)
+        rows, info = tok.inventory()
+        self.assertEqual(info["devices"], 2)
 
     def test_rollout_grouping(self):
         a = "http://10.0.0.1:49164/itunes-assets/Purple221/v4/aa/bb/cc/1234-uuid/pre-thinned123.thinned.signed.dpkg.ipa?source=iosapps.itunes.apple.com"
