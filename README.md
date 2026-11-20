@@ -20,8 +20,8 @@ Free and open source under the MIT License. It uses only the Python standard lib
 | `alerts.example.json` | Copy to `alerts.json` to set a chat webhook, email and thresholds. |
 | `incident.py` | Explains traffic drops: records connection, limit, error and system counters, and works out why traffic fell. |
 | `logs.py` | Reads the AssetCache log for the dashboard's log viewer: groups repeated errors, traces one request, and exports `.log` files. |
-| `appupdates.py` | App updates waiting: reads your app inventory from Mosyle (API or CSV export) and checks each app against the App Store. |
-| `mosyle.example.json` | Copy to `mosyle.json` to sync the app inventory from Mosyle automatically. |
+| `appupdates.py` | App updates waiting: reads your MDM's app inventory (an uploaded CSV report from any MDM, or optional automatic sync) and checks each app against the App Store. |
+| `mosyle.example.json` | Optional: settings for automatic app-inventory sync (see App updates). |
 | `history.py` | Saves one summary per day in `history.db` so reports can cover more than Apple's 30 days. |
 | `catalog.py` | Looks up real product names (for example "Safari 26.1" or "iPadOS 18.7") in Apple's public update catalogs. |
 | `clients.example.csv` | Optional. Rename it to `clients.csv` to give devices friendly names. |
@@ -84,7 +84,7 @@ cd ~/CacheDash-repo && git up
 
 1. downloads the latest version from GitHub and lists what's new
 2. runs the built-in tests, and stops if they fail
-3. installs it, keeping the name, port, allowed networks, other caches, extra options, `alerts.json`, `mosyle.json`, `clients.csv` and all history
+3. installs it, keeping the name, port, allowed networks, other caches, extra options, `alerts.json`, sync settings, `clients.csv` and all history
 4. checks the new version answers, and **puts the previous version back automatically** if it doesn't start
 
 If nothing changed, it says so and does nothing. `sudo FORCE=1 zsh update.sh` reinstalls anyway.
@@ -370,28 +370,30 @@ The **App updates** preset puts them together.
 
 **Data** is an upper limit: the App Store's listed size × devices that need the update. iPads download a smaller version made for their model, and updates are often smaller still.
 
-### Getting the app inventory
+### Getting the app inventory (any MDM)
 
-**Option 1: automatic from Mosyle (recommended).** On **one** caching Mac:
+Export an **installed-apps report** from your MDM as a CSV file, then click **Upload your MDM's app report…** (or **Upload CSV…**) in the App updates widget. It works with any MDM: Jamf, Intune, Kandji, Mosyle, Workspace ONE, Meraki, Addigy and others. Columns are detected by name, and a title line above the header is fine:
+
+- **app**: bundle ID (best) or app name
+- **version**
+- **device**: serial number, device name or UDID. This is optional, but without it you won't see which devices need each update. A summary report with a count column (such as `Installs`) per app and version also works.
+
+Upload a new report whenever you want fresh numbers. Each upload is compared with the previous one, which is what fills in **Updated 24 h**. The newest inventory replaces the previous one, so nothing is counted twice.
+
+#### Optional: automatic sync
+
+Instead of uploading reports, CacheDash can fetch the inventory from your MDM by itself every 6 hours. This is currently available for **Mosyle Manager**. On **one** caching Mac:
 
 1. In Mosyle Manager, turn on the API integration in your organization settings and copy the **access token** (Mosyle's help centre shows where it is for your account). Create a dedicated admin account for CacheDash with the least access that can view devices.
 2. Copy `mosyle.example.json` to `mosyle.json` and fill in `accessToken`, `email` and `password`. Leave `"os"` as `["ios", "macos"]` (or remove one).
-3. Reinstall (`sudo zsh install.sh "Cache 1" 8027 …`). The file is copied to `/usr/local/cachedash` and readable only by root.
+3. Reinstall (`sudo zsh install.sh`). The file is copied to `/usr/local/cachedash` and readable only by root.
 4. Check it works:
    ```
    sudo python3 /usr/local/cachedash/cachedash.py --check-mosyle
    ```
-   It logs in, reads one page of devices, and shows which field holds the installed apps. **Mosyle doesn't document this field publicly**, so if it says the app list wasn't found in the default fields but was found under another name, add that name as `"appsColumn"` in `mosyle.json` and reinstall. If Mosyle doesn't return installed apps for your account at all, use option 2.
+   It logs in, reads one page of devices, and shows which field holds the installed apps. Mosyle doesn't document this field publicly, so if the app list is found under a different name, add that name as `"appsColumn"` in `mosyle.json` and reinstall. If no app list comes back, upload reports instead.
 
-CacheDash syncs every 6 hours (`"refreshHours"`), and **Sync now** in the widget starts one straight away. Large districts can take a few minutes.
-
-**Option 2: upload a CSV export.** Click **Upload a CSV export…** in the widget and pick an installed-apps export from Mosyle (or any MDM). Any CSV with these columns works; names are detected automatically, and a title line above the header is fine:
-
-- **device**: serial number, device name or UDID (optional; without it, add a count column such as `Installs`)
-- **app**: bundle ID (best) or app name
-- **version**
-
-Upload a new export whenever you want fresh numbers. Each upload is compared with the previous one, which is what fills in **Updated 24 h**.
+The widget then shows **Sync now**, which starts a sync straight away (`"refreshHours"` changes the schedule).
 
 **App Store versions** come from Apple's public lookup service, checked every 12 hours, for the US store by default (`--app-store-country gb` and so on). Custom, in-house and some education apps aren't listed publicly and show "not in the public App Store". Apps matched by name (because an export had no bundle IDs) are marked so you can check the match. The caching Mac needs to reach `itunes.apple.com` over HTTPS.
 
@@ -428,7 +430,7 @@ How it works, and what it can't see:
 
   These names work for everything delivered through Software Update: Safari, XProtect, Command Line Tools, Rosetta, full macOS installers, and iOS, iPadOS and macOS updates. The original file name stays visible underneath.
 
-  **App Store apps can't be named this way.** Apple doesn't publish a catalog for App Store downloads, and their addresses are random strings, so apps keep showing their file name. See **App updates** above for how CacheDash uses your Mosyle inventory instead.
+  **App Store apps can't be named this way.** Apple doesn't publish a catalog for App Store downloads, and their addresses are random strings, so apps keep showing their file name. See **App updates** above for how CacheDash uses your MDM's app inventory instead.
 
   The caching Mac needs to reach `swscan.apple.com` and `mesu.apple.com` over HTTPS. Content caching already relies on Apple hosts, so they're usually allowed. To check, run:
 

@@ -46,8 +46,8 @@ class ClusterTests(unittest.TestCase):
             self.assertIsNone(n(bad), bad)
 
     def test_peer_addresses(self):
-        st = {"Peers": [{"address": "10.100.0.18:49219"}, {"Address": "10.100.0.19"}], "Parents": [{"address": "10.100.0.18"}]}
-        self.assertEqual(cluster.peer_addresses(st), ["10.100.0.18", "10.100.0.19"])
+        st = {"Peers": [{"address": "10.0.1.16:49219"}, {"Address": "10.0.1.17"}], "Parents": [{"address": "10.0.1.16"}]}
+        self.assertEqual(cluster.peer_addresses(st), ["10.0.1.16", "10.0.1.17"])
         self.assertEqual(cluster.peer_addresses({}), [])
 
     def test_join_checks_and_saves(self):

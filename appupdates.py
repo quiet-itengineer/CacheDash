@@ -1,14 +1,14 @@
 """
 CacheDash app updates: which App Store apps have new versions waiting, and how many
-of your devices still need them.
+of your devices still need them. Works with any MDM.
 
 The cache can't tell which app a download is (App Store addresses are random strings),
 but your MDM knows every app on every device, with its version. This module:
 
-  1. gets that inventory from Mosyle, either
-       * automatically from the Mosyle Manager API (mosyle.json next to this file), or
-       * from a CSV export uploaded in the dashboard (any CSV with device, app or
-         bundle ID, and version columns; column names are detected automatically);
+  1. gets that inventory from your MDM, either
+       * from a CSV report uploaded in the dashboard (any MDM: any CSV with app or
+         bundle ID, and version columns, plus optionally device; names detected automatically), or
+       * by optional automatic sync (currently Mosyle Manager's API, mosyle.json next to this file);
   2. looks up each app's current version, size and release date in Apple's public
      App Store lookup service (itunes.apple.com/lookup);
   3. reports, per app: devices on the current version, devices that still need the
@@ -525,15 +525,16 @@ class AppUpdates:
         if self.mosyle_cfg:
             threading.Thread(target=self.sync_mosyle, daemon=True).start()
         self._wake.set()
-        return {"ok": True, "mosyle": bool(self.mosyle_cfg)}
+        return {"ok": True, "autoSync": bool(self.mosyle_cfg)}
 
     # -- report ------------------------------------------------------------
     def report(self):
         src = self._meta("source")
         now = time.time()
         with self.lock:
-            inv = self.db.execute("""SELECT bundle, name, version, platform, SUM(n) FROM inventory
-                                     GROUP BY COALESCE(bundle, name), platform, version""").fetchall()
+            # only the newest inventory (an uploaded report or the last sync), so the two never add up twice
+            inv = self.db.execute("""SELECT bundle, name, version, platform, SUM(n) FROM inventory WHERE source = ?
+                                     GROUP BY COALESCE(bundle, name), platform, version""", ((src or {}).get("kind", ""),)).fetchall()
             store = {k: (json.loads(j), f, c) for k, j, f, c in self.db.execute("SELECT key, j, found, checked FROM store")}
             ch = self.db.execute("""SELECT COALESCE(bundle, name), MAX(name), COUNT(DISTINCT device), MAX(t),
                                     SUM(CASE WHEN t >= ? THEN 1 ELSE 0 END), MAX(new)
@@ -568,7 +569,7 @@ class AppUpdates:
         out.sort(key=lambda a: (a["pendingBytes"], a["pending"], a["devices"]), reverse=True)
         unchecked = sum(1 for a in out if a["checked"] is None)
         return {
-            "configured": {"mosyle": bool(self.mosyle_cfg), "country": self.country},
+            "configured": {"autoSync": bool(self.mosyle_cfg), "country": self.country},
             "source": src, "state": dict(self.state), "unchecked": unchecked,
             "totals": {"apps": len(out), "withUpdates": sum(1 for a in out if a["pending"]),
                        "pendingInstalls": sum(a["pending"] for a in out),
@@ -581,13 +582,14 @@ class AppUpdates:
     def devices(self, key):
         """Devices that have one app, with their versions (those needing the update first)."""
         plat, _, ident = key.partition(":")
+        kind = (self._meta("source") or {}).get("kind", "")
         with self.lock:
             if ident.startswith("name:"):
                 rows = self.db.execute("""SELECT device, device_name, version, n FROM inventory
-                                          WHERE platform = ? AND bundle IS NULL AND LOWER(name) = ?""", (plat, ident[5:])).fetchall()
+                                          WHERE source = ? AND platform = ? AND bundle IS NULL AND LOWER(name) = ?""", (kind, plat, ident[5:])).fetchall()
             else:
-                rows = self.db.execute("SELECT device, device_name, version, n FROM inventory WHERE platform = ? AND bundle = ?",
-                                       (plat, ident)).fetchall()
+                rows = self.db.execute("SELECT device, device_name, version, n FROM inventory WHERE source = ? AND platform = ? AND bundle = ?",
+                                       (kind, plat, ident)).fetchall()
             r = self.db.execute("SELECT j FROM store WHERE key = ?", (key,)).fetchone()
         latest = (json.loads(r[0]) if r else {}).get("version")
         devs = [{"device": d, "name": nm, "version": v, "count": n, "needsUpdate": older(v, latest)} for d, nm, v, n in rows]

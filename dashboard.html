@@ -802,7 +802,7 @@ const WIDGETS = [
     render:(el,c)=>clientsRecentCompact(el,c) },
   { id:"cl_recent", group:"clients", size:"l", title:"Recent downloads", desc:"What each device downloaded through the cache (newest first)",
     render:(el,c)=>clientsRecent(el,c) },
-  { id:"ap_updates", group:"apps", size:"l", title:"App updates waiting", desc:"App Store apps with a newer version than your devices have, from your Mosyle inventory and Apple's App Store listing. Click an app for its devices and release notes.",
+  { id:"ap_updates", group:"apps", size:"l", title:"App updates waiting", desc:"App Store apps with a newer version than your devices have, from your MDM's app inventory and Apple's App Store listing. Click an app for its devices and release notes.",
     render:(el,c)=>appUpdatesWidget(el,c) },
   { id:"ap_kpi", group:"apps", size:"s", title:"App updates (summary)", desc:"How many apps have updates waiting and how many installs that adds up to",
     render:(el,c)=>appUpdatesKpi(el,c) },
@@ -1158,8 +1158,8 @@ async function loadApps(){
   const ok = res.filter(r => r.status === "fulfilled" && r.value.data && !r.value.data.disabled).map(r => r.value);
   if (!ok.length){ lastApps = {data:null, server:null, error: res.find(r=>r.status==="rejected")?.reason?.message || "disabled"}; }
   else {
-    // the Mac that has an inventory (newest first), else one with Mosyle set up, else the first
-    ok.sort((a,b) => (b.data.source?.at||0) - (a.data.source?.at||0) || (+!!b.data.configured?.mosyle) - (+!!a.data.configured?.mosyle));
+    // the Mac that has an inventory (newest first), else one with automatic sync set up, else the first
+    ok.sort((a,b) => (b.data.source?.at||0) - (a.data.source?.at||0) || (+!!b.data.configured?.autoSync) - (+!!a.data.configured?.autoSync));
     lastApps = ok[0];
   }
   if (lastData && !demo){ lastData.apps = lastApps; ["ap_updates","ap_kpi","ap_rollout"].forEach(id => renderCard(id)); }
@@ -1185,24 +1185,23 @@ function uploadAppsCSV(){
   inp.click();
 }
 async function syncApps(){
-  try { await postJSON(appTarget().url, "/api/apps/sync", {}); toast("Syncing with Mosyle. This can take a few minutes for many devices."); pollApps(); }
+  try { await postJSON(appTarget().url, "/api/apps/sync", {}); toast("Syncing with your MDM. This can take a few minutes for many devices."); pollApps(); }
   catch(e){ toast("Couldn't start the sync: " + e.message); }
 }
 const fmtDate = iso => { const d = new Date(iso); return isFinite(d) ? d.toLocaleDateString([], {month:"short", day:"numeric", year: d.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined}) : ""; };
 function appSourceLine(A){
   const S = A.source, st = A.state || {};
   const bits = [];
-  if (S) bits.push(`${S.kind === "mosyle" ? "From Mosyle" : `From ${S.file ? "“" + esc(S.file) + "”" : "an uploaded CSV"}`}, ${esc(ago(S.at))}${S.devices ? ` · ${fmtNum(S.devices)} devices` : ""} · ${fmtNum(S.apps||0)} apps`);
-  if (st.syncing) bits.push("syncing with Mosyle now…");
+  if (S) bits.push(`${S.kind !== "csv" ? "From your MDM (automatic sync)" : `From ${S.file ? "“" + esc(S.file) + "”" : "an uploaded CSV"}`}, ${esc(ago(S.at))}${S.devices ? ` · ${fmtNum(S.devices)} devices` : ""} · ${fmtNum(S.apps||0)} apps`);
+  if (st.syncing) bits.push("syncing with your MDM now…");
   if (st.lookingUp || A.unchecked) bits.push(`checking the App Store for ${fmtNum(st.lookingUp || A.unchecked)} apps…`);
   return bits.join(" · ");
 }
 function appSetup(el, A){
-  const mos = A?.configured?.mosyle;
-  el.insertAdjacentHTML("beforeend", `<div class="callout" style="margin:4px 0 10px">${mos ? "Mosyle is set up on this server, but no inventory has arrived yet." : "Connect your app inventory to see which apps have updates waiting and how many devices need them."}</div>
-    <div class="wacts">${mos ? `<button class="btn primary" data-a="sync">Sync with Mosyle now</button>` : ""}<button class="btn${mos?"":" primary"}" data-a="csv">Upload a CSV export…</button></div>
-    <div class="note"><b>Automatic:</b> put your Mosyle API token and an admin login in <code>mosyle.json</code> on one caching Mac (see the README), then run <code>sudo python3 /usr/local/cachedash/cachedash.py --check-mosyle</code>.<br>
-    <b>CSV:</b> any export with device, app name or bundle ID, and version columns works. Column names are detected automatically.</div>`);
+  const auto = A?.configured?.autoSync;
+  el.insertAdjacentHTML("beforeend", `<div class="callout" style="margin:4px 0 10px">${auto ? "Automatic sync is set up on this server, but no inventory has arrived yet." : "Add your app inventory to see which apps have updates waiting and how many devices need them."}</div>
+    <div class="wacts">${auto ? `<button class="btn primary" data-a="sync">Sync now</button>` : ""}<button class="btn${auto?"":" primary"}" data-a="csv">Upload your MDM's app report…</button></div>
+    <div class="note">Export an installed-apps report from your MDM as a CSV file and upload it here. Any MDM works. The file needs an <b>app</b> column (bundle ID is best, or app name) and a <b>version</b> column. Add a <b>device</b> column (serial number or name) to see which devices need each update. Column names are detected automatically. Upload a new report whenever you want fresh numbers.</div>`);
   $('[data-a="sync"]', el)?.addEventListener("click", syncApps);
   $('[data-a="csv"]', el).onclick = uploadAppsCSV;
 }
@@ -1213,7 +1212,7 @@ function appProblems(el, A){
 }
 function appUpdatesKpi(el, c){
   const A = c.apps?.data;
-  if (!A || !A.source){ el.insertAdjacentHTML("beforeend", `<div class="kpi">–</div>`); return empty(el, A ? "No app inventory yet. Open App updates waiting to connect Mosyle or upload a CSV." : "Needs CacheDash 1.16."); }
+  if (!A || !A.source){ el.insertAdjacentHTML("beforeend", `<div class="kpi">–</div>`); return empty(el, A ? "No app inventory yet. Open App updates waiting to upload your MDM's app report." : "Needs CacheDash 1.16."); }
   const T = A.totals;
   kpi(el, `${fmtNum(T.withUpdates)} apps`, `${fmtNum(T.pendingInstalls)} installs waiting · up to ${fmtBytes(T.pendingBytes)}`,
       T.withUpdates ? ["warning", "Updates waiting"] : ["good", "All up to date"]);
@@ -1235,7 +1234,7 @@ function appUpdatesWidget(el, c){
   const bar = document.createElement("div"); bar.className = "wsearch";
   bar.innerHTML = `<input type="search" placeholder="Find an app" aria-label="Find an app" value="${esc(apFilter.q)}" spellcheck="false">
     <label class="cnt" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${apFilter.pending?"checked":""}> Only apps with updates</label>
-    ${A.configured?.mosyle ? `<button class="btn" data-a="sync" style="padding:3px 9px;font-size:12px">Sync now</button>` : ""}<button class="btn" data-a="csv" style="padding:3px 9px;font-size:12px">Upload CSV…</button>`;
+    ${A.configured?.autoSync ? `<button class="btn" data-a="sync" style="padding:3px 9px;font-size:12px">Sync now</button>` : ""}<button class="btn" data-a="csv" style="padding:3px 9px;font-size:12px">Upload CSV…</button>`;
   el.appendChild(bar);
   let qt; $("input[type=search]", bar).oninput = e => { clearTimeout(qt); qt = setTimeout(() => { apFilter.q = e.target.value.trim(); renderCard("ap_updates"); }, 300); };
   $("input[type=checkbox]", bar).onchange = e => { apFilter.pending = e.target.checked; renderCard("ap_updates"); };
@@ -1321,9 +1320,9 @@ function rolloutWidget(el, c){
         <span class="dot" style="background:var(${live ? "--good" : "--s1"})"></span><span class="nm">${esc(title)}</span><span class="v">${fmtNum(g.devices)} device${g.devices===1?"":"s"}</span>
         <span class="sub2">${esc(sub)}</span></div>`; }).join("");
   }
-  // Put names to the waves: what Mosyle says was updated recently.
+  // Put names to the waves: what the MDM inventory says was updated recently.
   const recent = (c.apps?.data?.apps || []).filter(a => a.updated24h).sort((a,b) => b.updated24h - a.updated24h).slice(0, 5);
-  if (recent.length) el.insertAdjacentHTML("beforeend", `<div class="note"><b>Updated on your devices in the last 24 hours (from ${c.apps.data.source?.kind === "mosyle" ? "Mosyle" : "your inventory"}):</b> ${recent.map(a => `${esc(a.name)} → ${esc(a.storeVersion || "")} (${fmtNum(a.updated24h)})`).join(", ")}</div>`);
+  if (recent.length) el.insertAdjacentHTML("beforeend", `<div class="note"><b>Updated on your devices in the last 24 hours (from your MDM):</b> ${recent.map(a => `${esc(a.name)} → ${esc(a.storeVersion || "")} (${fmtNum(a.updated24h)})`).join(", ")}</div>`);
   el.insertAdjacentHTML("beforeend", `<div class="note">Every device updating the same app downloads from the same place, so each line is one app update. Apple doesn't publish app names for these downloads, so most lines are unnamed: compare the timing and size with App updates waiting.</div>`);
 }
 function demoApps(){
@@ -1335,7 +1334,7 @@ function demoApps(){
     mk("Keynote","com.apple.Keynote","14.4",8.1e8,120,880,0,9), mk("Explain Everything","com.morriscooke.explaineverything","7.6",3.2e8,64,300,12,4),
     mk("Seesaw","com.seesaw.ios","9.3",1.1e8,0,1000,0,20), mk("Microsoft Word","com.microsoft.Office.Word","2.92",4.4e8,0,150,0,30,"macos")];
   const T = {apps: apps.length, withUpdates: apps.filter(a=>a.pending).length, pendingInstalls: apps.reduce((s,a)=>s+a.pending,0), pendingBytes: apps.reduce((s,a)=>s+a.pendingBytes,0), updated24h: apps.reduce((s,a)=>s+a.updated24h,0)};
-  return {configured:{mosyle:true, country:"us"}, source:{kind:"mosyle", at: now-7200, devices:1000, apps: 212}, state:{}, unchecked:0, totals:T, apps};
+  return {configured:{autoSync:false, country:"us"}, source:{kind:"csv", file:"installed-apps.csv", at: now-7200, devices:1000, apps: 212}, state:{}, unchecked:0, totals:T, apps};
 }
 function demoAppDevices(a){
   const devs = Array.from({length: Math.min(40, a.devices)}, (_,i) => ({device:`DMPX${1000+i}`, name:`CART-${String.fromCharCode(65+i%4)}-IPAD${String(i+1).padStart(2,"0")}`,

@@ -123,6 +123,13 @@ class AppTests(unittest.TestCase):
         self.assertEqual(d["devices"][0]["device"], "S2")                # needing the update listed first
         self.assertTrue(d["devices"][0]["needsUpdate"])
 
+    def test_newest_source_only(self):
+        self.au.import_csv("Serial,App,Bundle ID,Version\nS1,Docs,com.google.Docs,1.2026.2\n")
+        self.au.save_inventory("mosyle", [{"device": "S1", "bundle": "com.google.Docs", "name": "Docs", "version": "1.2026.2", "n": 1}])
+        docs = next(a for a in self.au.report()["apps"] if a["bundle"] == "com.google.Docs")
+        self.assertEqual(docs["devices"], 1)                              # not counted twice
+        self.assertFalse(self.au.report()["configured"]["autoSync"])
+
     def test_mosyle_api(self):
         cfg = {"accessToken": "a", "email": "e", "password": "pw", "baseUrl": self.base + "/v2", "os": ["ios", "macos"]}
         rows, info = appupdates.Mosyle(cfg).inventory()

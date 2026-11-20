@@ -67,7 +67,7 @@ import appupdates  # noqa: E402
 import cluster  # noqa: E402
 import selfupdate  # noqa: E402
 
-VERSION = "1.19.0"
+VERSION = "1.19.1"
 DEFAULT_DB = "/Library/Application Support/Apple/AssetCache/Metrics/Metrics.db"
 CORE_DATA_EPOCH = 978307200  # 2001-01-01T00:00:00Z in Unix seconds
 HERE = os.path.dirname(os.path.abspath(__file__))
