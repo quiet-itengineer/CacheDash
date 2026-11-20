@@ -5,6 +5,10 @@
 *.db-shm
 alerts.json
 mosyle.json
+update-pin.json
+update-status.json
+update-request
+source.json
 clients.csv
 servers.json
 catalog-cache.json

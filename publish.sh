@@ -31,7 +31,7 @@ echo "Running the built-in tests…"
 (cd "$NEW" && /usr/bin/python3 -m unittest discover -s tests -q 2>&1 | tail -3) || { echo "Tests failed. Nothing was published."; exit 1; }
 
 PRIVATE=(--exclude .git --exclude '*.db' --exclude '*.db-*' --exclude mosyle.json --exclude alerts.json
-         --exclude clients.csv --exclude servers.json --exclude source.json --exclude catalog-cache.json
+         --exclude clients.csv --exclude servers.json --exclude source.json --exclude catalog-cache.json --exclude update-pin.json --exclude update-status.json --exclude update-request
          --exclude '*.log' --exclude '*.ndjson' --exclude __pycache__ --exclude .DS_Store)
 rsync -rlp --delete "${PRIVATE[@]}" "$NEW/" "$REPO/"
 git -C "$REPO" add -A

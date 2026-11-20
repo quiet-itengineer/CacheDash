@@ -139,6 +139,9 @@ select.btn{padding-right:28px}
 .mutelist div{display:flex;align-items:center;gap:8px;font-size:12.5px;background:var(--surface-2);border-radius:8px;padding:6px 10px}
 .mutelist div span{flex:1}
 .logopen .scrim{opacity:1;pointer-events:auto}.logopen #logPanel{transform:none}
+#updDialog{border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--ink);padding:18px 20px;width:min(520px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.25)}
+#updDialog::backdrop{background:rgba(0,0,0,.3)}
+#updDialog .mutelist div{justify-content:space-between}
 .appopen .scrim{opacity:1;pointer-events:auto}.appopen #appPanel{transform:none}
 #appPanel{width:min(760px,100vw)}
 #logPanel{width:min(1040px,100vw)}
@@ -516,7 +519,7 @@ body.reporting .tip{z-index:80}
       <div id="widgetList"></div>
     </div>
     <div id="tab-servers" hidden>
-      <p class="sub" style="margin-top:14px">Each caching Mac runs <b>cachedash.py</b>. Add a second cache by entering the address of its CacheDash server, e.g. <code>http://cache2.example.local:8027</code>. Leave the address blank for the Mac serving this page.</p>
+      <p class="sub" style="margin-top:14px">Caching Macs connected when CacheDash was installed (or found as this cache's peers) appear here automatically. To connect more for everyone, run <code>sudo zsh install.sh --setup</code> on a caching Mac. You can also add one just for this browser: enter the address of its CacheDash server, e.g. <code>http://cache2.example.local:8027</code>. Leave the address blank for the Mac serving this page.</p>
       <div id="serverList"></div>
       <button class="btn" id="addServer" style="margin-top:6px">+ Add server</button>
     </div>
@@ -527,6 +530,8 @@ body.reporting .tip{z-index:80}
       <label class="wrow"><label><input type="checkbox" id="stackLayout"> <span>Stack small tiles beside larger ones<small>Half-width tiles are two rows tall, so two small tiles fit on top of each other next to them instead of stretching.</small></span></label></label>
       <label class="wrow"><label><input type="checkbox" id="denseLayout"> <span>Fill empty gaps automatically<small>Small tiles move up into empty spaces, so tiles may appear slightly out of order.</small></span></label></label>
       <button class="btn" id="resetLayout">Reset widgets to default</button>
+      <h4>Updates</h4>
+      <div id="updSettings" class="sub">Loading…</div>
       <h4>Alerts</h4>
       <div id="alertSettings" class="sub">Loading…</div>
       <h4>Backup</h4>
@@ -570,6 +575,7 @@ body.reporting .tip{z-index:80}
   <div class="body" id="lgBody"></div>
 </aside>
 <div class="tip" id="tip" role="tooltip"></div>
+<dialog id="updDialog" aria-label="Update CacheDash"><div id="updBody"></div></dialog>
 </div>
 <section class="report" id="report" hidden aria-label="Usage report">
   <div class="rp-bar"><div class="rp-bar-in">
@@ -1343,6 +1349,87 @@ function demoRollouts(){
   return {start:n-6*3600, end:n, downloads: 1100, groups:[g(null, 238, 71, 1.9e8, 42), g(null, 96, 0, 1.2e8, 180), g("Keynote 14.4", 22, 4, 6.1e8, 30), g(null, 9, 0, 4.0e7, 300), g(null, 4, 0, 2.2e8, 320, "Mac App Store app")]};
 }
 
+/* --- Updating CacheDash from the dashboard ------------------------------------ */
+const updInfo = s => serverInfo[s.id]?.update || null;
+async function checkUpdatesNow(btn){
+  if (btn){ btn.disabled = true; btn.textContent = "Checking…"; }
+  await Promise.allSettled(state.servers.map(async s => { const u = await postJSON(s.url, "/api/update/check", {});
+    if (serverInfo[s.id]) serverInfo[s.id].update = {...(serverInfo[s.id].update||{}), ...u, canUpdate: u.status?.ready ?? serverInfo[s.id].update?.canUpdate}; }));
+  state.dismissedUpdate = null; saveState();
+  await load(); if (isDrawerOpen()) renderUpdateSettings();
+  if (btn){ btn.disabled = false; btn.textContent = "Check now"; }
+}
+function renderUpdateSettings(){
+  const box = $("#updSettings"); if (!box) return;
+  if (demo){ box.textContent = "Sample data: updates are set up on each caching Mac."; return; }
+  const rows = state.servers.map(s => { const u = updInfo(s), name = serverName(s, serverInfo[s.id]);
+    if (!u) return `<div><span><b>${esc(name)}</b> · not reachable or older than 1.17</span></div>`;
+    const st = u.available ? `<b style="color:var(--accent)">${esc(u.latest)} available</b>` : u.latest ? "up to date" : u.repo ? "not checked yet" : u.canUpdate ? "updates from its git clone" : "not installed from a git clone";
+    return `<div><span><b>${esc(name)}</b> · ${esc(u.current)} · ${st}${u.checked ? ` <span class="sub">(checked ${esc(ago(u.checked))})</span>` : ""}${u.error ? `<br><span class="sub">${esc(u.error)}</span>` : ""}</span></div>`; }).join("");
+  const any = state.servers.some(s => updInfo(s)?.canUpdate);
+  box.innerHTML = `<div class="mutelist">${rows}</div><div class="presets"><button class="btn" data-a="check">Check now</button>${any ? `<button class="btn primary" data-a="upd">Update…</button>` : ""}</div>
+    <p class="note">${any ? "Installs the newest version published to your GitHub repository on every caching Mac, using the update PIN." : "To use the Update button: install CacheDash from a git clone and set a PIN on each caching Mac with <code>sudo zsh install.sh --pin</code>."}</p>`;
+  $('[data-a="check"]', box).onclick = e => checkUpdatesNow(e.currentTarget);
+  $('[data-a="upd"]', box)?.addEventListener("click", () => openUpdateDialog(true));
+}
+let updRun = null;
+function openUpdateDialog(all){
+  const dlg = $("#updDialog");
+  const targets = state.servers.filter(s => updInfo(s)?.canUpdate && (all || updInfo(s)?.available));
+  const blocked = state.servers.filter(s => updInfo(s) && !updInfo(s).canUpdate && (all || updInfo(s).available));
+  const latest = targets.map(s => updInfo(s)?.latest).find(Boolean);
+  $("#updBody").innerHTML = `<h3 style="margin:0 0 6px">Update CacheDash${latest ? " to " + esc(latest) : ""}</h3>
+    <p class="sub" style="margin:0 0 10px">${targets.length ? `This installs the newest version from your GitHub repository on ${targets.map(s => `<b>${esc(serverName(s, serverInfo[s.id]))}</b>`).join(" and ")}. Each Mac checks the new version starts, and goes back to the current one if it doesn't. It takes about a minute.` : "No caching Mac is ready to update from here."}</p>
+    ${blocked.length ? `<div class="banner" style="margin:0 0 10px">${blocked.map(s => `<b>${esc(serverName(s, serverInfo[s.id]))}</b>: run <code>sudo zsh install.sh --pin</code> on it (from its git clone) to turn on the Update button.`).join("<br>")}</div>` : ""}
+    ${targets.length ? `<label class="f" style="display:grid;gap:4px;font-size:12px;color:var(--ink-2)">Update PIN<input type="password" id="updPin" autocomplete="off" style="border:1px solid var(--border);background:var(--page);border-radius:8px;padding:7px 9px;font-size:14px"></label>` : ""}
+    <div id="updProg" class="mutelist" style="margin-top:10px"></div>
+    <div class="presets" style="justify-content:flex-end;margin-top:10px"><button class="btn" id="updClose">Close</button>${targets.length ? `<button class="btn primary" id="updGo">Update now</button>` : ""}</div>`;
+  $("#updClose").onclick = () => { dlg.close(); };
+  const go = $("#updGo");
+  if (go){ $("#updPin").onkeydown = e => { if (e.key === "Enter") go.click(); };
+    go.onclick = () => runUpdate(targets, $("#updPin").value); setTimeout(() => $("#updPin").focus(), 50); }
+  dlg.showModal();
+}
+async function runUpdate(targets, pin){
+  if (!pin){ $("#updPin").focus(); return; }
+  const prog = $("#updProg"), go = $("#updGo");
+  go.disabled = true; go.textContent = "Updating…";
+  const rows = new Map(targets.map(s => [s.id, {s, state:"sending", text:"Starting…"}]));
+  const draw = () => { prog.innerHTML = [...rows.values()].map(r => `<div><span><b>${esc(serverName(r.s, serverInfo[r.s.id]))}</b> · ${esc(r.text)}</span>${
+    r.state === "done" || r.state === "uptodate" ? statusPill("good", r.state === "done" ? "Updated" : "Up to date") : r.state === "failed" || r.state === "error" ? statusPill("critical", "Not updated") : `<span class="sub">…</span>`}</div>`).join(""); };
+  draw();
+  await Promise.all(targets.map(async s => { const r = rows.get(s.id);
+    try {
+      const res = await fetch((s.url||"").replace(/\/$/,"") + "/api/update/run", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({pin})});
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok){ Object.assign(r, {state:"error", text: j.error || res.statusText}); return; }
+      Object.assign(r, {state:"queued", text: j.already ? "Already updating…" : "Downloading and testing the new version…", since: nowS()});
+    } catch(e){ Object.assign(r, {state:"error", text: e.message}); } }));
+  draw();
+  if ([...rows.values()].every(r => r.state === "error")){ go.disabled = false; go.textContent = "Try again"; if ([...rows.values()].some(r => /PIN/.test(r.text))) $("#updPin").select(); return; }
+  const t0 = nowS();
+  const poll = async () => {
+    const live = [...rows.values()].filter(r => r.state === "queued" || r.state === "running" || r.state === "restarting");
+    if (!live.length || nowS() - t0 > 300){
+      live.forEach(r => Object.assign(r, {state:"error", text:"No answer after 5 minutes. Check /var/log/cachedash-update.log on that Mac."}));
+      draw(); go.textContent = "Done";
+      const mine = [...rows.values()].find(r => !r.s.url);
+      if ([...rows.values()].some(r => r.state === "done")) setTimeout(() => location.reload(), mine?.state === "done" ? 1500 : 4000);
+      return;
+    }
+    await Promise.all(live.map(async r => {
+      try {
+        const u = await getJSON(r.s.url, "/api/update"), st = u.status || {};
+        if (st.state === "running") Object.assign(r, {state:"running", text:`Installing (from ${st.from || "?"})…`});
+        else if (st.state === "done") Object.assign(r, {state:"done", text:`Now running ${st.to}`});
+        else if (st.state === "uptodate") Object.assign(r, {state:"uptodate", text:`Already on the newest version (${st.to})`});
+        else if (st.state === "failed") Object.assign(r, {state:"failed", text: st.error || "The update didn't complete. The previous version is still running."});
+      } catch { Object.assign(r, {state:"restarting", text:"Restarting with the new version…"}); }
+    }));
+    draw(); setTimeout(poll, 2000);
+  };
+  setTimeout(poll, 2000);
+}
 /* --- CPU & memory -------------------------------------------------------- */
 const pctColor = (v, warn=80, crit=90) => v >= crit ? "var(--critical)" : v >= warn ? "var(--warning)" : "var(--s1)";
 function fmtUptime(sec){ if (!sec) return "–"; const d = Math.floor(sec/86400), h = Math.floor(sec%86400/3600), m = Math.floor(sec%3600/60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; }
@@ -2577,9 +2664,10 @@ function render(){
     const repoOk = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/.test(U.repo || "");
     b += `<div class="banner hist" data-upd><span><b>CacheDash ${esc(U.latest)} is available.</b> ${ups.map(i => `${esc(i.server)} has ${esc(i.update.current)}`).join(", ")}. To update, open Terminal on ${ups.length > 1 ? "each caching Mac" : "the caching Mac"} and run
       ${[...new Set(ups.map(i => i.update.path).filter(Boolean))].map(p => `<code>cd ${esc(p)} && git up</code>`).join(" or ") || "<code>git up</code> in your CacheDash folder"}</span><span class="spacer"></span>
-      ${repoOk ? `<a class="btn" href="${esc(U.repo)}/commits/${encodeURIComponent(U.branch || "main")}" target="_blank" rel="noopener noreferrer">What's new</a>` : ""}<button class="btn" data-dismiss-upd>Not now</button></div>`;
+      ${repoOk ? `<a class="btn" href="${esc(U.repo)}/commits/${encodeURIComponent(U.branch || "main")}" target="_blank" rel="noopener noreferrer">What's new</a>` : ""}${ups.some(i => i.update.canUpdate) ? `<button class="btn primary" data-do-upd>Update now</button>` : ""}<button class="btn" data-dismiss-upd>Not now</button></div>`;
   }
   $("#banners").innerHTML = b;
+  $("#banners [data-do-upd]")?.addEventListener("click", () => openUpdateDialog(false));
   $("#banners [data-dismiss-upd]")?.addEventListener("click", () => { state.dismissedUpdate = ups[0].update.latest; saveState(); render(); });
   $("#banners [data-live]")?.addEventListener("click", () => goLive(null, true));
   $("#banners [data-zoomout]")?.addEventListener("click", () => { const w = win(), mid = (w.start+w.end)/2, len = (w.end-w.start)*3; setRange(mid-len/2, mid+len/2, true); });
@@ -3014,7 +3102,7 @@ gridSortable($("#grid"));
 sortable($("#widgetList"), ".wrow[data-id]", ".dgrip");
 const openDrawerBase = (tab) => { document.getElementById("app").classList.add("open"); selectTab(tab); renderDrawer(); };
 const closeDrawer = () => document.getElementById("app").classList.remove("open");
-function openDrawer(tab="widgets"){ openDrawerBase(tab); renderAlertSettings(); }
+function openDrawer(tab="widgets"){ openDrawerBase(tab); renderAlertSettings(); renderUpdateSettings(); }
 $("#customizeBtn").onclick = () => openDrawer();
 $("#closeDrawer").onclick = closeDrawer; $("#scrim").onclick = () => { closeDrawer(); closeDevice(); closeIncident(); closeLogs(); closeApp(); };
 $("#apClose").onclick = closeApp;

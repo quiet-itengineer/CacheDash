@@ -30,6 +30,7 @@ Every command is run directly (never through a shell) with fixed arguments:
 | `/usr/bin/nettop -p <AssetCache pid>` | Bytes sent to each device | clientmon.py |
 | `pgrep`, `ps`, `top`, `vm_stat`, `sysctl`, `pmset -g therm` | CPU, memory, uptime, temperature | incident.py, clientmon.py |
 | `lsof -p <AssetCache pid>`, `netstat -s / -L / -I` | Connection limits and link errors when traffic drops | incident.py |
+| `git pull`, `python3 -m unittest`, `install.sh` (via `updater.sh`, launchd job `local.cachedash.updater`) | Only when you run `git up` or click Update with the right PIN | update.sh, updater.sh |
 | `ifconfig`, `route -n get default` | Find the network interface and its speed | alerts.py, clientmon.py |
 | `defaults read /Library/Preferences/com.apple.SoftwareUpdate CatalogURL` | Use your Software Update catalog if you set one | catalog.py |
 
@@ -44,6 +45,7 @@ The only user input that reaches a command is a request ID from the log viewer's
 | Apple's App Store lookup (`itunes.apple.com/lookup`) | Every 12 hours, once you've loaded an app inventory: the bundle IDs of your apps (app names only if an export has no bundle IDs). No device information is sent. | `--no-apps` |
 | Mosyle Manager API (`managerapi.mosyle.com`) | Every 6 hours, only if `mosyle.json` exists. Logs in with your API token and admin account and reads the device list with installed apps. | Don't create `mosyle.json` |
 | GitHub (`raw.githubusercontent.com`) | Twice a day, only if CacheDash was installed from a git clone: reads the `VERSION` line of `cachedash.py` in your repository to say whether an update is available. Nothing is downloaded or installed automatically; `git up` is always run by you. | `--no-update-check` |
+| Your other caching Macs (port 8027, never through a proxy) | When the installer checks an address you type; every 30 minutes for this cache's peers and parents (does CacheDash answer?); every 6 hours to tell the Macs in `servers.json` about this one | `--no-cluster` |
 | Your webhook / SMTP server | Only if you configure them in `alerts.json` | Leave them empty |
 | Your other caching Macs | Your browser fetches their API when you add them to the dashboard | Don't add them |
 
@@ -53,6 +55,8 @@ The server listens on port 8027 (change with `--port`, or bind to one address wi
 
 - **Only computers on private networks** (10.x, 172.16–31.x, 192.168.x, loopback, IPv6 ULA/link-local) may connect. Use `--allow CIDR` (repeatable) to narrow this to, say, your IT subnet, or widen it. The caching Mac itself (127.0.0.1) is always allowed, so the installer's start-up check and the desktop widget keep working. With the installer: `sudo CACHEDASH_ALLOW="10.0.5.0/24" zsh install.sh "Cache 1"`.
 - **Browsers only let pages served from private addresses** (another caching Mac's dashboard) read the API. A website a staff member has open can't read device data or mute alerts. Add an exact origin with `--allow-origin https://dash.example.org`.
+- **Another caching Mac can add itself to this dashboard** (`POST /api/cluster/join`), and only itself: the address added is the one the request came from, it's added only after this Mac checks that CacheDash answers there, browser requests are refused, and the list is capped at 12. It only changes which Macs the dashboard shows. Narrow `--allow` if other computers on your network shouldn't be able to do this.
+- **The Update button needs a PIN** set on the caching Mac (`sudo zsh install.sh --pin`). Only a salted PBKDF2-SHA256 hash is stored (`update-pin.json`, mode 600); five wrong PINs lock it for 10 minutes. A correct PIN can only do one thing: run `git up` on the clone CacheDash was installed from (its path comes from `source.json`, written by the installer), as the owner of that clone, with the usual tests, start-up check and rollback. The person clicking can't choose what gets installed. Anyone who can push to your GitHub repository can therefore change what the button installs, so protect that repository (2FA, fine-grained tokens), as you would for `git up`. No PIN set means the button is off.
 - **Changes (acknowledge, mute, test alert, app-inventory upload) must be sent as JSON**, uploads are capped at 30 MB, which stops form-based cross-site requests.
 
 Anyone allowed to connect can see device addresses, device names and download names, and can acknowledge or mute alerts. If that's too broad, use `--allow` to limit it to your IT staff's subnet, or a firewall rule on port 8027. Don't expose port 8027 to the internet.
@@ -70,6 +74,8 @@ All in `/usr/local/cachedash`:
 | `alerts.db` | Incidents and system samples | Incidents 180 days, samples 14 days |
 | `apps.db` | App inventory from your MDM: device serial numbers and names, app bundle IDs and versions, and version changes | Inventory until the next sync; changes 60 days |
 | `mosyle.json` | Mosyle API token, admin email and password (mode 600, never sent to the browser). Use a dedicated Mosyle admin account with read-only rights. | — |
+| `update-pin.json` | Salted hash of the Update button PIN (mode 600) | Until changed |
+| `update-status.json` | Progress of the last update from the dashboard | Until the next one |
 | `alerts.json` | Webhook URL and SMTP password, if you set them (mode 600, never sent to the browser) | — |
 | `clients.csv`, `servers.json` | Your device names and other caches, if you create them | — |
 

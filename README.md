@@ -1,4 +1,4 @@
-# CacheDash: Content Cache dashboard for macOS 27 (v1.17)
+# CacheDash: Content Cache dashboard for macOS 27 (v1.19)
 
 A dashboard for Apple Content Caching where you pick which widgets appear. It reads the per-cache usage database that Apple documents for macOS 27:
 
@@ -29,6 +29,8 @@ Free and open source under the MIT License. It uses only the Python standard lib
 | `tests/` | Automated checks of the access rules and report maths: `python3 -m unittest discover -s tests -v` |
 | `LICENSE` | MIT License. |
 | `install.sh` | Installs CacheDash to `/usr/local/cachedash` as a LaunchDaemon that starts at boot. Run again with no arguments to update: it keeps every setting, checks the new version starts, and puts the old one back if not. |
+| `cluster.py` | Connects the caching Macs: finds the others, checks addresses, and tells each Mac about the others. |
+| `selfupdate.py`, `updater.sh` | The dashboard's Update button: PIN check, and the small service that runs `git up` when you click it. |
 | `update.sh` | What `git up` runs: pulls the latest version, runs the tests, installs it. |
 | `publish.sh` | Puts a new release zip into your GitHub repo (tests, copy, commit, push). |
 
@@ -63,9 +65,9 @@ Install from a git clone of your CacheDash repository, and updating any caching 
 **Once per caching Mac:**
 
 ```
-git clone https://github.com/quiet-itengineer/CacheDash.git ~/CacheDash-repo
+git clone https://github.com/YOUR-ACCOUNT/CacheDash.git ~/CacheDash-repo
 cd ~/CacheDash-repo
-sudo zsh install.sh "Cache 1" 8027 "Cache 2=http://10.100.0.18:8027"
+sudo zsh install.sh "Cache 1" 8027 "Cache 2=http://10.0.1.16:8027"
 ```
 
 Use your own repository address. If CacheDash is already installed, leave out the name, port and other caches (`sudo zsh install.sh`): an existing install keeps its settings.
@@ -85,7 +87,13 @@ cd ~/CacheDash-repo && git up
 
 If nothing changed, it says so and does nothing. `sudo FORCE=1 zsh update.sh` reinstalls anyway.
 
-**The dashboard tells you when to update.** Twice a day each caching Mac checks the version on GitHub (public repositories only; turn off with `--no-update-check`). When a newer one exists, a banner says so, shows the exact `git up` command for each Mac, and links to what's new. **Not now** hides it until the next version.
+**Or update from the dashboard: the Update button.** When a new version is published to your repository, click **Update now** on the banner (or **Widgets → Settings → Updates → Update…**), type your **update PIN**, and every caching Mac on the dashboard updates itself: the same `git up` steps, with progress shown for each Mac. The page reloads with the new version when it's done. If a Mac's new version doesn't start, that Mac goes back to its previous version and the dialog says so.
+
+- **Set the PIN** when the installer asks, or any time with `sudo zsh install.sh --pin` (Return leaves the button off). Use the **same PIN on every caching Mac**, so one click updates them all.
+- The button only works on Macs installed from a git clone, because it installs from that clone's repository. It can't install anything else.
+- Five wrong PINs lock the button for 10 minutes. The update's output is in `/var/log/cachedash-update.log` on each Mac.
+
+**The dashboard tells you when to update.** Every 2 hours (or when you click **Check now** in Widgets → Settings → Updates) each caching Mac checks the version on GitHub (public repositories only; turn off with `--no-update-check`). When a newer one exists, a banner says so, shows the exact `git up` command for each Mac, and links to what's new. **Not now** hides it until the next version.
 
 **Publishing a new release** (for example a zip from Claude) to your repository, from any Mac with your GitHub login:
 
@@ -97,17 +105,24 @@ It unzips the release, runs the tests, copies it over your clone (settings and d
 
 ## Several caching Macs on one dashboard
 
-Install CacheDash on **every** caching Mac, and tell each one about the others when you install it. Add the other Macs after the port, as `"Name=http://address:8027"`:
+Install CacheDash on **every** caching Mac. The installer asks which other caching Macs to show:
 
 ```
-# on the first Mac
-sudo zsh install.sh "Cache 1" 8027 "Cache 2=http://10.0.1.16:8027"
-
-# on the second Mac
-sudo zsh install.sh "Cache 2" 8027 "Cache 1=http://10.0.1.15:8027"
+cd ~/CacheDash-repo && sudo zsh install.sh
 ```
 
-Open either Mac's dashboard and it adds the other cache automatically and switches to **All caches (combined)**. This works in any browser, on any computer, and the server list is saved to `servers.json` on the Mac. You can still add or remove servers by hand in **Widgets → Servers**.
+1. **Name** and **port** (press Return to accept the suggestion).
+2. It **looks for the others by itself**: any of this cache's peers or parents that run CacheDash is offered, so you just answer **Y**.
+3. You can **type an address** for any it didn't find, such as `10.0.1.16`. Each one is checked straight away (✓ connected, or ✗ with the reason). If CacheDash isn't installed there yet, you can add it anyway.
+4. Once it's running, it **tells each of those Macs about this one**, so you only enter each Mac once. Install the first Mac, then the second: the second finds or adds the first, and the first adds the second automatically.
+
+Open either Mac's dashboard and it shows every cache and switches to **All caches (combined)**. This works in any browser on any computer; the list is saved in `servers.json` on each Mac.
+
+**Later changes:** `sudo zsh install.sh --setup` asks the questions again (keep or clear the list, find, add). `git up` never asks anything and keeps the list. While running, each Mac also checks its peers every 30 minutes and re-announces itself every 6 hours, so a Mac that was offline during setup catches up on its own. Turn this off with `--no-cluster`.
+
+Scripted installs still work: `sudo zsh install.sh "Cache 1" 8027 "Cache 2=http://10.0.1.16:8027"`.
+
+The browser reads each Mac directly, so port 8027 must be reachable from your computer to every caching Mac, and the caching Macs must be able to reach each other on that port (if you used `--allow`, include the other caching Macs' addresses).
 
 | Widget | What it shows |
 |---|---|
@@ -458,7 +473,8 @@ sudo launchctl kickstart -k system/local.cachedash
 - **Uninstall.**
   ```
   sudo launchctl bootout system /Library/LaunchDaemons/local.cachedash.plist
-  sudo rm /Library/LaunchDaemons/local.cachedash.plist
+  sudo launchctl bootout system /Library/LaunchDaemons/local.cachedash.updater.plist
+  sudo rm /Library/LaunchDaemons/local.cachedash.plist /Library/LaunchDaemons/local.cachedash.updater.plist
   sudo rm -r /usr/local/cachedash
   ```
 

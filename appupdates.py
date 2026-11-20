@@ -33,7 +33,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-UA = {"User-Agent": "CacheDash/1.16 (+content-cache dashboard)"}
+UA = {"User-Agent": "CacheDash/1.18 (+content-cache dashboard)"}
 LOOKUP = "https://itunes.apple.com/lookup"
 SEARCH = "https://itunes.apple.com/search"
 MOSYLE = "https://managerapi.mosyle.com/v2"

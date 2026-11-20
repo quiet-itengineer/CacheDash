@@ -64,8 +64,10 @@ import catalog  # noqa: E402
 import clientmon  # noqa: E402
 import history  # noqa: E402
 import appupdates  # noqa: E402
+import cluster  # noqa: E402
+import selfupdate  # noqa: E402
 
-VERSION = "1.17.0"
+VERSION = "1.19.0"
 DEFAULT_DB = "/Library/Application Support/Apple/AssetCache/Metrics/Metrics.db"
 CORE_DATA_EPOCH = 978307200  # 2001-01-01T00:00:00Z in Unix seconds
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -354,7 +356,7 @@ def vtuple(v):
 
 class UpdateCheck:
     """Is a newer CacheDash on GitHub? Reads source.json (written by install.sh from a git clone)
-    and, twice a day, the VERSION line of cachedash.py on that branch. Public repositories only;
+    and, every 2 hours (or when someone clicks Check now), the VERSION line of cachedash.py on that branch. Public repositories only;
     nothing is downloaded or installed, the dashboard just says an update is available."""
 
     def __init__(self, path, enabled=True):
@@ -364,6 +366,7 @@ class UpdateCheck:
                 src = json.load(f)
         except (OSError, ValueError):
             src = {}
+        self.source = src
         m = re.search(r"github\.com[:/]+([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", src.get("repo") or "")
         self.raw = None
         if m:
@@ -376,7 +379,7 @@ class UpdateCheck:
 
     def check(self):
         try:
-            req = urllib.request.Request(self.raw, headers={"User-Agent": f"CacheDash/{VERSION} update check"})
+            req = urllib.request.Request(f"{self.raw}?t={int(time.time())}", headers={"User-Agent": f"CacheDash/{VERSION} update check"})
             with urllib.request.urlopen(req, timeout=20) as r:
                 text = r.read(200_000).decode("utf-8", "replace")
             m = re.search(r'^VERSION = "([^"]+)"', text, re.M)
@@ -392,7 +395,7 @@ class UpdateCheck:
         time.sleep(60)
         while True:
             self.check()
-            time.sleep(12 * 3600)
+            time.sleep(2 * 3600)
 
 
 class StatusReader:
@@ -479,13 +482,14 @@ class Handler(BaseHTTPRequestHandler):
     store: MetricsStore = None
     status: StatusReader = None
     clients = None
-    cluster = []      # other caching Macs to show on this dashboard (servers.json)
+    cluster = None    # cluster.Cluster: other caching Macs to show on this dashboard
     logs = None
     resolver = None
     alerts = None
     history = None
     apps = None
     updates = None
+    updater = None
     access = Access()
     name = socket.gethostname()
 
@@ -552,6 +556,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, self.alerts.mute(body["rule"], body.get("days")))
             if u.path == "/api/alerts/unmute" and self.alerts:
                 return self._send(200, self.alerts.unmute(body["rule"]))
+            if u.path == "/api/update/check" and self.updates:
+                if self.updates.raw:
+                    self.updates.check()
+                return self._send(200, {**self.updates.state, "status": self.updater.status() if self.updater else None})
+            if u.path == "/api/update/run" and self.updater:
+                code, res = self.updater.request(str(body.get("pin") or ""), self.client_address[0])
+                return self._send(code, res)
+            if u.path == "/api/cluster/join" and self.cluster:
+                if self.headers.get("Origin"):        # Mac-to-Mac only, never from a web page
+                    return self._send(403, {"error": "not from a browser"})
+                return self._send(200, self.cluster.join(self.client_address[0], body.get("port", 8027)))
             if u.path == "/api/apps/import" and self.apps:
                 try:
                     return self._send(200, self.apps.import_csv(str(body.get("csv") or ""), str(body.get("filename") or "")))
@@ -574,8 +589,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, f.read(), "text/html; charset=utf-8")
             if u.path == "/api/info":
                 return self._send(200, {"name": self.name, "version": VERSION,
-                                        "hostname": socket.gethostname(), "cluster": self.cluster,
-                                        "update": self.updates.state if self.updates else None,
+                                        "hostname": socket.gethostname(), "cluster": self.cluster.list() if self.cluster else [],
+                                        "update": ({**self.updates.state, "canUpdate": self.updater.status()["ready"] if self.updater else False}
+                                                   if self.updates else None),
                                         **self.store.info()})
             if u.path == "/api/metrics":
                 num = lambda k: float(q[k][0]) if q.get(k) and q[k][0] not in ("", "auto") else None
@@ -632,6 +648,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not ip:
                     return self._send(400, {"error": "ip is required"})
                 return self._send(200, self.clients.device(ip, num("start"), num("end")))
+            if u.path == "/api/update":
+                return self._send(200, {**(self.updates.state if self.updates else {}),
+                                        "status": self.updater.status() if self.updater else None})
             if u.path == "/api/apps":
                 return self._send(200, self.apps.report() if self.apps else {"disabled": True})
             if u.path == "/api/apps/devices":
@@ -709,6 +728,11 @@ def main():
     ap.add_argument("--mosyle", default=os.path.join(HERE, "mosyle.json"),
                     help="Mosyle Manager API settings (see mosyle.example.json); leave the file out to use CSV uploads only")
     ap.add_argument("--app-store-country", default="us", help="App Store country for version lookups (two letters)")
+    ap.add_argument("--no-cluster", action="store_true",
+                    help="don't look for or announce this Mac to other caching Macs (servers.json still works)")
+    ap.add_argument("--find-caches", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--probe", metavar="ADDRESS", help=argparse.SUPPRESS)
+    ap.add_argument("--join", metavar="URL", help=argparse.SUPPRESS)
     ap.add_argument("--no-update-check", action="store_true",
                     help="don't check GitHub twice a day for a newer CacheDash")
     ap.add_argument("--no-apps", action="store_true", help="turn off the App updates feature")
@@ -719,6 +743,16 @@ def main():
 
     if a.check_catalogs is not None:
         catalog.check(a.catalog_cache, a.check_catalogs, su_catalog=a.sucatalog)
+        sys.exit(0)
+
+    if a.find_caches:            # installer helpers
+        cluster.cli_find(a.port)
+        sys.exit(0)
+    if a.probe:
+        cluster.cli_probe(a.probe, a.port)
+        sys.exit(0)
+    if a.join:
+        cluster.cli_join(a.join, a.port)
         sys.exit(0)
 
     if a.check_mosyle:
@@ -739,14 +773,7 @@ def main():
     Handler.access = Access(a.allow, a.allow_origin)
     Handler.status = StatusReader()
     Handler.name = a.name
-    try:
-        with open(a.servers) as f:
-            Handler.cluster = [{"name": str(x.get("name", "")), "url": str(x["url"]).rstrip("/")}
-                               for x in json.load(f) if isinstance(x, dict) and x.get("url")]
-    except FileNotFoundError:
-        pass
-    except Exception as e:
-        print(f"Ignoring {a.servers}: {e}")
+    Handler.cluster = cluster.Cluster(a.servers, a.port, a.name, status=Handler.status, enabled=not a.no_cluster)
     if not a.no_catalogs:
         Handler.resolver = catalog.CatalogResolver(a.catalog_cache, su_catalog=a.sucatalog)
     if not a.no_clients:
@@ -758,6 +785,7 @@ def main():
         if Handler.clients:
             Handler.clients.on_log_line = Handler.alerts.note_log_line
     Handler.updates = UpdateCheck(os.path.join(HERE, "source.json"), enabled=not a.no_update_check)
+    Handler.updater = selfupdate.Updater(HERE, VERSION, Handler.updates.source)
     if not a.no_apps:
         Handler.apps = appupdates.AppUpdates(a.apps_db, a.mosyle, country=a.app_store_country.lower()[:2])
     if not a.no_history:
