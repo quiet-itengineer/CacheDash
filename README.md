@@ -1,5 +1,7 @@
 # CacheDash: Content Cache dashboard for macOS 27 (v1.19)
 
+> **Built with Claude.** CacheDash was written with [Claude](https://claude.ai), Anthropic's AI assistant, directed and tested by a school IT administrator. Read the code before you run it as root: [SECURITY.md](SECURITY.md) and [About this project](#about-this-project) explain what it does and how it was made.
+
 A dashboard for Apple Content Caching where you pick which widgets appear. It reads the per-cache usage database that Apple documents for macOS 27:
 
 `/Library/Application Support/Apple/AssetCache/Metrics/Metrics.db`
