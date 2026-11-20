@@ -43,6 +43,7 @@ The only user input that reaches a command is a request ID from the log viewer's
 | Apple download addresses | Only when someone clicks **Check who answers** in the log viewer. One request for 1 byte, refused for any non-Apple host (`logs.py`, `APPLE_DOMAINS`) | Don't click it |
 | Apple's App Store lookup (`itunes.apple.com/lookup`) | Every 12 hours, once you've loaded an app inventory: the bundle IDs of your apps (app names only if an export has no bundle IDs). No device information is sent. | `--no-apps` |
 | Mosyle Manager API (`managerapi.mosyle.com`) | Every 6 hours, only if `mosyle.json` exists. Logs in with your API token and admin account and reads the device list with installed apps. | Don't create `mosyle.json` |
+| GitHub (`raw.githubusercontent.com`) | Twice a day, only if CacheDash was installed from a git clone: reads the `VERSION` line of `cachedash.py` in your repository to say whether an update is available. Nothing is downloaded or installed automatically; `git up` is always run by you. | `--no-update-check` |
 | Your webhook / SMTP server | Only if you configure them in `alerts.json` | Leave them empty |
 | Your other caching Macs | Your browser fetches their API when you add them to the dashboard | Don't add them |
 
@@ -50,7 +51,7 @@ The only user input that reaches a command is a request ID from the log viewer's
 
 The server listens on port 8027 (change with `--port`, or bind to one address with `--bind`). It has **no login**, so it limits who can connect:
 
-- **Only computers on private networks** (10.x, 172.16–31.x, 192.168.x, loopback, IPv6 ULA/link-local) may connect. Use `--allow CIDR` (repeatable) to narrow this to, say, your IT subnet, or widen it. With the installer: `sudo CACHEDASH_ALLOW="10.0.5.0/24" zsh install.sh "Cache 1"`.
+- **Only computers on private networks** (10.x, 172.16–31.x, 192.168.x, loopback, IPv6 ULA/link-local) may connect. Use `--allow CIDR` (repeatable) to narrow this to, say, your IT subnet, or widen it. The caching Mac itself (127.0.0.1) is always allowed, so the installer's start-up check and the desktop widget keep working. With the installer: `sudo CACHEDASH_ALLOW="10.0.5.0/24" zsh install.sh "Cache 1"`.
 - **Browsers only let pages served from private addresses** (another caching Mac's dashboard) read the API. A website a staff member has open can't read device data or mute alerts. Add an exact origin with `--allow-origin https://dash.example.org`.
 - **Changes (acknowledge, mute, test alert, app-inventory upload) must be sent as JSON**, uploads are capped at 30 MB, which stops form-based cross-site requests.
 

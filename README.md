@@ -1,4 +1,4 @@
-# CacheDash: Content Cache dashboard for macOS 27 (v1.16)
+# CacheDash: Content Cache dashboard for macOS 27 (v1.17)
 
 A dashboard for Apple Content Caching where you pick which widgets appear. It reads the per-cache usage database that Apple documents for macOS 27:
 
@@ -28,7 +28,9 @@ Free and open source under the MIT License. It uses only the Python standard lib
 | `SECURITY.md` | What CacheDash runs, connects to and stores, and who can reach it. |
 | `tests/` | Automated checks of the access rules and report maths: `python3 -m unittest discover -s tests -v` |
 | `LICENSE` | MIT License. |
-| `install.sh` | Installs both files to `/usr/local/cachedash` and sets them up as a LaunchDaemon that starts at boot. |
+| `install.sh` | Installs CacheDash to `/usr/local/cachedash` as a LaunchDaemon that starts at boot. Run again with no arguments to update: it keeps every setting, checks the new version starts, and puts the old one back if not. |
+| `update.sh` | What `git up` runs: pulls the latest version, runs the tests, installs it. |
+| `publish.sh` | Puts a new release zip into your GitHub repo (tests, copy, commit, push). |
 
 ## Install on the caching Mac
 
@@ -53,6 +55,45 @@ To try it once without installing:
 ```
 sudo python3 cachedash.py --name "High School"
 ```
+
+## Updating: `git up`
+
+Install from a git clone of your CacheDash repository, and updating any caching Mac is one command.
+
+**Once per caching Mac:**
+
+```
+git clone https://github.com/quiet-itengineer/CacheDash.git ~/CacheDash-repo
+cd ~/CacheDash-repo
+sudo zsh install.sh "Cache 1" 8027 "Cache 2=http://10.100.0.18:8027"
+```
+
+Use your own repository address. If CacheDash is already installed, leave out the name, port and other caches (`sudo zsh install.sh`): an existing install keeps its settings.
+
+**From then on, to update:**
+
+```
+cd ~/CacheDash-repo && git up
+```
+
+`git up` (set up by `install.sh`):
+
+1. downloads the latest version from GitHub and lists what's new
+2. runs the built-in tests, and stops if they fail
+3. installs it, keeping the name, port, allowed networks, other caches, extra options, `alerts.json`, `mosyle.json`, `clients.csv` and all history
+4. checks the new version answers, and **puts the previous version back automatically** if it doesn't start
+
+If nothing changed, it says so and does nothing. `sudo FORCE=1 zsh update.sh` reinstalls anyway.
+
+**The dashboard tells you when to update.** Twice a day each caching Mac checks the version on GitHub (public repositories only; turn off with `--no-update-check`). When a newer one exists, a banner says so, shows the exact `git up` command for each Mac, and links to what's new. **Not now** hides it until the next version.
+
+**Publishing a new release** (for example a zip from Claude) to your repository, from any Mac with your GitHub login:
+
+```
+cd ~/CacheDash-repo && zsh publish.sh ~/Downloads/CacheDash_1.17.zip
+```
+
+It unzips the release, runs the tests, copies it over your clone (settings and data files are never copied or uploaded, and it stops if one would be), shows the changes, commits and pushes. Then run `git up` on each caching Mac.
 
 ## Several caching Macs on one dashboard
 
@@ -158,7 +199,6 @@ Auto-refresh pauses while you're looking at a past window, and all widgets use t
 - Busiest hours uses its own Today, 7 days and 30 days buttons, unless you set it to **Time range**.
 - Cache pressure covers the 24 hours that end at the end of your window.
 
-To update an existing install, run `sudo zsh install.sh "High School"` again from the new folder.
 
 ## Alerts: knowing when something goes wrong
 
@@ -414,6 +454,7 @@ sudo launchctl kickstart -k system/local.cachedash
 - **Network access.** The server listens on all interfaces at port 8027 but only answers private addresses, and only lets dashboards served from private addresses read it from a browser. Narrow it with `--allow CIDR` (or `CACHEDASH_ALLOW` at install), add a specific dashboard address with `--allow-origin URL`, or limit it to the Mac itself with `--bind 127.0.0.1`. There is no login, so keep it on a trusted VLAN. Opening `dashboard.html` straight from disk shows sample data only.
 - **Not used by this version.** Unique, peak and connected client counts exist only in macOS 27's HTTPS metrics report, which CacheDash doesn't read. The live device widget gives a direct view of connected devices instead.
 - **Device names and download history are visible to anyone who can open the dashboard.** Keep port 8027 on a staff or management VLAN.
+- **An update didn't start.** `install.sh` puts the previous version back by itself and shows the end of `/var/log/cachedash.log`. The previous version's files are kept in `/usr/local/cachedash/.previous`.
 - **Uninstall.**
   ```
   sudo launchctl bootout system /Library/LaunchDaemons/local.cachedash.plist

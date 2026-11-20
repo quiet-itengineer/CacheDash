@@ -23,7 +23,8 @@ class AccessTests(unittest.TestCase):
         a = Access(["10.5.0.0/16"])
         self.assertTrue(a.client_ok("10.5.9.9"))
         self.assertFalse(a.client_ok("10.6.0.1"))
-        self.assertFalse(a.client_ok("127.0.0.1"))
+        self.assertTrue(a.client_ok("127.0.0.1"))      # the caching Mac itself is always allowed
+        self.assertFalse(a.client_ok("192.168.1.5"))
 
     def test_origins(self):
         self.assertTrue(self.a.origin_ok(None))                          # same-origin / non-browser

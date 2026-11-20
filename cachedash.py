@@ -43,6 +43,7 @@ import argparse
 import ipaddress
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -51,6 +52,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -63,7 +65,7 @@ import clientmon  # noqa: E402
 import history  # noqa: E402
 import appupdates  # noqa: E402
 
-VERSION = "1.16.0"
+VERSION = "1.17.0"
 DEFAULT_DB = "/Library/Application Support/Apple/AssetCache/Metrics/Metrics.db"
 CORE_DATA_EPOCH = 978307200  # 2001-01-01T00:00:00Z in Unix seconds
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -346,6 +348,53 @@ class MetricsStore:
                 "days": [{"date": x.isoformat(), "weekday": x.weekday(), "bytes": days.get(x.isoformat(), 0)} for x in dates]}
 
 
+def vtuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:4])
+
+
+class UpdateCheck:
+    """Is a newer CacheDash on GitHub? Reads source.json (written by install.sh from a git clone)
+    and, twice a day, the VERSION line of cachedash.py on that branch. Public repositories only;
+    nothing is downloaded or installed, the dashboard just says an update is available."""
+
+    def __init__(self, path, enabled=True):
+        self.state = {"current": VERSION, "latest": None, "available": False, "checked": None, "error": None}
+        try:
+            with open(path) as f:
+                src = json.load(f)
+        except (OSError, ValueError):
+            src = {}
+        m = re.search(r"github\.com[:/]+([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", src.get("repo") or "")
+        self.raw = None
+        if m:
+            owner, repo, branch = m.group(1), m.group(2), src.get("branch") or "main"
+            self.raw = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/cachedash.py"
+            self.state.update({"repo": f"https://github.com/{owner}/{repo}", "branch": branch,
+                               "commit": src.get("commit"), "path": src.get("path")})
+        if enabled and self.raw:
+            threading.Thread(target=self._loop, daemon=True).start()
+
+    def check(self):
+        try:
+            req = urllib.request.Request(self.raw, headers={"User-Agent": f"CacheDash/{VERSION} update check"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                text = r.read(200_000).decode("utf-8", "replace")
+            m = re.search(r'^VERSION = "([^"]+)"', text, re.M)
+            if not m:
+                raise ValueError("no version found")
+            latest = m.group(1)
+            self.state.update({"latest": latest, "available": vtuple(latest) > vtuple(VERSION), "error": None})
+        except Exception as e:
+            self.state["error"] = f"couldn't check for updates: {e}"
+        self.state["checked"] = time.time()
+
+    def _loop(self):
+        time.sleep(60)
+        while True:
+            self.check()
+            time.sleep(12 * 3600)
+
+
 class StatusReader:
     """Optional: live cache status from the built-in AssetCacheManagerUtil."""
 
@@ -396,7 +445,8 @@ class Access:
 
     def client_ok(self, addr):
         a = _ip(addr)
-        return a is not None and any(a in n for n in self.nets)
+        # The caching Mac itself is always allowed (the update check after installing, the desktop widget).
+        return a is not None and (a.is_loopback or any(a in n for n in self.nets))
 
     def _host_private(self, host):
         a = _ip(host.strip("[]"))
@@ -435,6 +485,7 @@ class Handler(BaseHTTPRequestHandler):
     alerts = None
     history = None
     apps = None
+    updates = None
     access = Access()
     name = socket.gethostname()
 
@@ -524,6 +575,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/info":
                 return self._send(200, {"name": self.name, "version": VERSION,
                                         "hostname": socket.gethostname(), "cluster": self.cluster,
+                                        "update": self.updates.state if self.updates else None,
                                         **self.store.info()})
             if u.path == "/api/metrics":
                 num = lambda k: float(q[k][0]) if q.get(k) and q[k][0] not in ("", "auto") else None
@@ -657,6 +709,8 @@ def main():
     ap.add_argument("--mosyle", default=os.path.join(HERE, "mosyle.json"),
                     help="Mosyle Manager API settings (see mosyle.example.json); leave the file out to use CSV uploads only")
     ap.add_argument("--app-store-country", default="us", help="App Store country for version lookups (two letters)")
+    ap.add_argument("--no-update-check", action="store_true",
+                    help="don't check GitHub twice a day for a newer CacheDash")
     ap.add_argument("--no-apps", action="store_true", help="turn off the App updates feature")
     ap.add_argument("--check-mosyle", action="store_true", help="test the Mosyle API settings, show what it returns, and exit")
     ap.add_argument("--diagnose-clients", type=int, metavar="SECONDS",
@@ -703,6 +757,7 @@ def main():
                                             clients=Handler.clients, server_name=a.name)
         if Handler.clients:
             Handler.clients.on_log_line = Handler.alerts.note_log_line
+    Handler.updates = UpdateCheck(os.path.join(HERE, "source.json"), enabled=not a.no_update_check)
     if not a.no_apps:
         Handler.apps = appupdates.AppUpdates(a.apps_db, a.mosyle, country=a.app_store_country.lower()[:2])
     if not a.no_history:

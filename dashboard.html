@@ -58,6 +58,7 @@ header.top h1 svg{color:var(--accent)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--border),var(--shadow);font-weight:600}
 .btn{border:1px solid var(--border);background:var(--surface);padding:6px 12px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px}
 .btn:hover{background:var(--surface-2)}
+a.btn{text-decoration:none;color:inherit}
 .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
 .btn.primary:hover{filter:brightness(1.08)}
 .btn.icon{padding:6px 8px}
@@ -2570,7 +2571,16 @@ function render(){
   if (state.range) b += `<div class="banner hist"><span><b>Viewing history:</b> ${esc(rangeLabel())} in ${esc(bucketName(c.m.bucketSeconds))} intervals. Auto-refresh is paused.</span><span class="spacer"></span><button class="btn" data-zoomout>Zoom out</button><button class="btn primary" data-live>Back to live</button></div>`;
   if (demo) b += `<div class="banner"><b>Showing sample data.</b> This page couldn't reach a CacheDash server${errors.length?` (${esc(errors[0])})`:""}. Run <code>sudo python3 cachedash.py</code> on your caching Mac and open <code>http://&lt;mac&gt;:8027</code> to see live metrics.</div>`;
   else if (errors.length) b += `<div class="banner err"><b>Some data couldn't be loaded.</b> ${errors.map(esc).join("<br>")}</div>`;
+  const ups = demo ? [] : c.infos.filter(i => i.update?.available);
+  if (ups.length && state.dismissedUpdate !== ups[0].update.latest){
+    const U = ups[0].update;
+    const repoOk = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/.test(U.repo || "");
+    b += `<div class="banner hist" data-upd><span><b>CacheDash ${esc(U.latest)} is available.</b> ${ups.map(i => `${esc(i.server)} has ${esc(i.update.current)}`).join(", ")}. To update, open Terminal on ${ups.length > 1 ? "each caching Mac" : "the caching Mac"} and run
+      ${[...new Set(ups.map(i => i.update.path).filter(Boolean))].map(p => `<code>cd ${esc(p)} && git up</code>`).join(" or ") || "<code>git up</code> in your CacheDash folder"}</span><span class="spacer"></span>
+      ${repoOk ? `<a class="btn" href="${esc(U.repo)}/commits/${encodeURIComponent(U.branch || "main")}" target="_blank" rel="noopener noreferrer">What's new</a>` : ""}<button class="btn" data-dismiss-upd>Not now</button></div>`;
+  }
   $("#banners").innerHTML = b;
+  $("#banners [data-dismiss-upd]")?.addEventListener("click", () => { state.dismissedUpdate = ups[0].update.latest; saveState(); render(); });
   $("#banners [data-live]")?.addEventListener("click", () => goLive(null, true));
   $("#banners [data-zoomout]")?.addEventListener("click", () => { const w = win(), mid = (w.start+w.end)/2, len = (w.end-w.start)*3; setRange(mid-len/2, mid+len/2, true); });
   // grid
@@ -2585,7 +2595,7 @@ function render(){
     renderCard(id, card);
   });
   stackFix();
-  $("#foot").textContent = `CacheDash · data from Metrics.db${c.statuses.some(s=>s.status?.ok)?" and AssetCacheManagerUtil":""} · ${bucketName(c.m.bucketSeconds)} intervals · drag across a graph to zoom · updated ${new Date().toLocaleTimeString()}`;
+  $("#foot").textContent = `CacheDash${c.infos[0]?.version ? " " + c.infos[0].version : ""} · data from Metrics.db${c.statuses.some(s=>s.status?.ok)?" and AssetCacheManagerUtil":""} · ${bucketName(c.m.bucketSeconds)} intervals · drag across a graph to zoom · updated ${new Date().toLocaleTimeString()}`;
   // controls
   const lbl = state.range ? rangeLabel() : rangeLabel().replace(/^the last/, "Last");
   $("#rangeText").textContent = `${lbl} · ${bucketName(c.m.bucketSeconds)}`;
