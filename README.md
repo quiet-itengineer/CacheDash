@@ -1,4 +1,4 @@
-# CacheDash: Content Cache dashboard for macOS 27 (v1.19)
+# CacheDash: Content Cache dashboard for macOS 27 (v1.20)
 
 > **Built with Claude.** CacheDash was written with [Claude](https://claude.ai), Anthropic's AI assistant, directed and tested by a school IT administrator. Read the code before you run it as root: [SECURITY.md](SECURITY.md) and [About this project](#about-this-project) explain what it does and how it was made.
 
@@ -33,6 +33,7 @@ Free and open source under the MIT License. It uses only the Python standard lib
 | `install.sh` | Installs CacheDash to `/usr/local/cachedash` as a LaunchDaemon that starts at boot. Run again with no arguments to update: it keeps every setting, checks the new version starts, and puts the old one back if not. |
 | `cluster.py` | Connects the caching Macs: finds the others, checks addresses, and tells each Mac about the others. |
 | `selfupdate.py`, `updater.sh` | The dashboard's Update button: PIN check, and the small service that runs `git up` when you click it. |
+| `cachestore.py` | Finds where a download is stored in the cache (read-only). |
 | `update.sh` | What `git up` runs: pulls the latest version, runs the tests, installs it. |
 | `publish.sh` | Puts a new release zip into your GitHub repo (tests, copy, commit, push). |
 
@@ -444,6 +445,12 @@ How it works, and what it can't see:
   - beta or AppleSeed builds, unless the Mac is pointed at a beta catalog (CacheDash uses the same catalog the Mac does)
 
   These show the file name instead.
+- **Click a download's name** (in Recent downloads, Live device bandwidth, a device's Apps & updates, Rolling out now, or the compact tiles) to open its details:
+  - **What it is:** type, real name and version when Apple's catalogs know it, product ID, file name, size, and the full Apple address.
+  - **Where it's stored on the cache:** the exact file on each caching Mac (Apple keeps each item as `…/AssetCache/Data/<ID>/0`), its size on disk and when it was cached, with a **Copy** button and the Terminal command to show it in Finder. If it isn't stored, it says so (removed to make space, or passed straight through).
+  - **Who downloaded it:** every device that downloaded that file in the last 30 days, when, how many times, how much, and whether it came from the cache or Apple. For App Store apps, devices that downloaded the same app update in a version for a different model are listed too. Click a device to open it.
+
+  The storage lookup reads a copy of the cache's own index (`AssetInfo.db`) and never changes or moves cached files. Apple doesn't document that index, so check it on your Mac with `sudo python3 /usr/local/cachedash/cachedash.py --find-cached`, optionally followed by a file name or address.
 - **Data and Size use measured traffic.** CacheDash counts the bytes the cache actually sends to each device, every few seconds, and saves them per minute. Top devices' **Data** is the larger of that measurement and the sizes reported in the log. In Recent downloads, a size marked **≈** was measured from traffic because the log didn't give one. Measurement starts when v1.3.2 is installed, so older downloads may still show "–".
 - **Download history** is saved to `clients.db` next to the program and kept for 30 days. Recording starts when v1.2 starts running, so earlier history isn't available.
 - **Device names** come from reverse DNS. If your DHCP server registers hostnames, you'll see names like `CART-A-IPAD07`. To label devices yourself, rename `clients.example.csv` to `clients.csv`, fill in `ip,name` rows, and reinstall.

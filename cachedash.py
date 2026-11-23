@@ -66,8 +66,9 @@ import history  # noqa: E402
 import appupdates  # noqa: E402
 import cluster  # noqa: E402
 import selfupdate  # noqa: E402
+import cachestore  # noqa: E402
 
-VERSION = "1.19.2"
+VERSION = "1.20.0"
 DEFAULT_DB = "/Library/Application Support/Apple/AssetCache/Metrics/Metrics.db"
 CORE_DATA_EPOCH = 978307200  # 2001-01-01T00:00:00Z in Unix seconds
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -490,6 +491,7 @@ class Handler(BaseHTTPRequestHandler):
     apps = None
     updates = None
     updater = None
+    store_files = None    # cachestore.CacheStore: where downloads are kept on disk
     access = Access()
     name = socket.gethostname()
 
@@ -651,6 +653,21 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/update":
                 return self._send(200, {**(self.updates.state if self.updates else {}),
                                         "status": self.updater.status() if self.updater else None})
+            if u.path == "/api/download":
+                url = (q.get("url") or [""])[0][:2000]
+                if not url:
+                    return self._send(400, {"error": "url is required"})
+                num = lambda k: float(q[k][0]) if q.get(k) and q[k][0] else None
+                who = self.clients.downloads_of(url, num("start"), num("end")) if self.clients else {"disabled": True}
+                what = dict((who or {}).get("sample") or {"url": url})
+                if self.clients and not what.get("kind"):
+                    what["kind"], what["item"] = clientmon.classify(url)
+                    what = self.clients.label(what)
+                parts = urlparse(apple_url := logs.full_url(url))
+                res = self.resolver.lookup(url, fetch=False) if self.resolver else None
+                return self._send(200, {"server": self.name, "url": url, "appleUrl": apple_url, "host": parts.hostname,
+                                        "path": cachestore.url_path(url), "what": what, "catalog": res, "who": who,
+                                        "where": self.store_files.find(url) if self.store_files else {"error": "turned off"}})
             if u.path == "/api/apps":
                 return self._send(200, self.apps.report() if self.apps else {"disabled": True})
             if u.path == "/api/apps/devices":
@@ -730,6 +747,8 @@ def main():
     ap.add_argument("--app-store-country", default="us", help="App Store country for version lookups (two letters)")
     ap.add_argument("--no-cluster", action="store_true",
                     help="don't look for or announce this Mac to other caching Macs (servers.json still works)")
+    ap.add_argument("--find-cached", nargs="?", const="-", metavar="URL_OR_FILE",
+                    help="show where the cache stores files, and look up one download address or file name, then exit")
     ap.add_argument("--find-caches", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--probe", metavar="ADDRESS", help=argparse.SUPPRESS)
     ap.add_argument("--join", metavar="URL", help=argparse.SUPPRESS)
@@ -745,6 +764,9 @@ def main():
         catalog.check(a.catalog_cache, a.check_catalogs, su_catalog=a.sucatalog)
         sys.exit(0)
 
+    if a.find_cached:
+        cachestore.cli(a.find_cached)
+        sys.exit(0)
     if a.find_caches:            # installer helpers
         cluster.cli_find(a.port)
         sys.exit(0)
@@ -785,6 +807,7 @@ def main():
         if Handler.clients:
             Handler.clients.on_log_line = Handler.alerts.note_log_line
     Handler.updates = UpdateCheck(os.path.join(HERE, "source.json"), enabled=not a.no_update_check)
+    Handler.store_files = cachestore.CacheStore()
     Handler.updater = selfupdate.Updater(HERE, VERSION, Handler.updates.source)
     if not a.no_apps:
         Handler.apps = appupdates.AppUpdates(a.apps_db, a.mosyle, country=a.app_store_country.lower()[:2])

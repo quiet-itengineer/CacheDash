@@ -40,7 +40,7 @@ fi
 INSTALLED=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' /usr/local/cachedash/cachedash.py 2>/dev/null | head -1 || true)
 NEW=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$SRC/cachedash.py" | head -1)
 SAME=1
-for f in cachedash.py clientmon.py catalog.py alerts.py incident.py logs.py history.py appupdates.py cluster.py selfupdate.py updater.sh dashboard.html; do
+for f in cachedash.py clientmon.py catalog.py alerts.py incident.py logs.py history.py appupdates.py cluster.py selfupdate.py cachestore.py updater.sh dashboard.html; do
   cmp -s "$SRC/$f" "/usr/local/cachedash/$f" || SAME=0
 done
 if (( SAME )) && [[ "${FORCE:-}" != 1 ]]; then

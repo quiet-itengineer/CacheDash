@@ -117,6 +117,13 @@ def rollout_key(url):
     return folder.lower(), fname
 
 
+def rollout_path(url):
+    """Path of a download address without host or query (?source=…), lower-cased for matching."""
+    if not url:
+        return ""
+    return urllib.parse.unquote(urllib.parse.urlsplit(url if "://" in url else "http://x" + url).path).rstrip("/").lower()
+
+
 def readable_app_name(fname):
     """'Keynote-14.4.signed.dpkg.ipa' -> 'Keynote 14.4'; random or thinned file names -> None."""
     base = re.sub(r"(\.signed)?(\.dpkg)?\.(ipa|pkg)$|\.signed\.dpkg$|\.thinned.*$", "", fname or "", flags=re.I)
@@ -390,7 +397,7 @@ class ClientMonitor:
                 clients = []
                 for ip, c in per.items():
                     m = self.label(dict(self.meta.get(ip, {})))
-                    clients.append({**c, "name": self.name_for(ip), "model": m.get("model"), "os": m.get("os"),
+                    clients.append({**c, "name": self.name_for(ip), "model": m.get("model"), "os": m.get("os"), "url": m.get("url"),
                                     "kind": m.get("kind"), "item": m.get("item"), "file": m.get("file"),
                                     "detail": m.get("detail"), "named": m.get("named"), "lastSeen": m.get("t")})
                 clients.sort(key=lambda c: c["rateOut"], reverse=True)
@@ -550,7 +557,7 @@ class ClientMonitor:
             if not r["bytes"] and r.get("measured"):
                 r["bytes"], r["sizeMeasured"] = r["measured"], True
             key = (r["kind"], r["item"])
-            g = groups.setdefault(key, {"kind": r["kind"], "item": r["item"], "detail": r.get("detail"), "file": r.get("file"),
+            g = groups.setdefault(key, {"kind": r["kind"], "item": r["item"], "detail": r.get("detail"), "file": r.get("file"), "url": r.get("url"),
                                         "named": r.get("named"), "count": 0, "bytes": 0, "fromCache": 0, "fromOrigin": 0,
                                         "measured": False, "first": r["t"], "last": r["t"]})
             g["count"] += 1
@@ -662,6 +669,57 @@ class ClientMonitor:
             "found": self._find(top.values(), find) if find else None,
         }
 
+    def downloads_of(self, url, start=None, end=None, limit=2000):
+        """Every device that downloaded this file (same address path) in a window, newest first.
+        For App Store apps, other device-type versions of the same app update (same folder) are
+        listed too, marked as variants."""
+        path = rollout_path(url)
+        if not path:
+            return {"error": "no address given"}
+        folder = path.rpartition("/")[0]
+        now = time.time()
+        end = end or now
+        start = start or end - RETENTION
+        like = folder.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        with self.lock:
+            rows = self._db.execute("""SELECT t, ip, model, os, agent, kind, item, url, bytes, from_cache, from_origin, from_peer, measured
+                                       FROM downloads WHERE t BETWEEN ? AND ? AND url LIKE ? ESCAPE '\\' ORDER BY t DESC LIMIT ?""",
+                                    (start, end, f"%{like}/%", limit * 3)).fetchall()
+        cols = ["t", "ip", "model", "os", "agent", "kind", "item", "url", "bytes", "fromCache", "fromOrigin", "fromPeer", "measured"]
+        recs, sample = [], None
+        for r in rows:
+            d = dict(zip(cols, r))
+            p = rollout_path(d["url"])
+            exact = p == path
+            if not exact and not (p.rpartition("/")[0] == folder and d["kind"] in ("App Store app", "Mac App Store app")):
+                continue
+            d = self.label(d)
+            if not d["bytes"] and d.get("measured"):
+                d["bytes"], d["sizeMeasured"] = d["measured"], True
+            d["variant"] = not exact
+            d["name"] = self.name_for(d["ip"])
+            if exact and sample is None:
+                sample = d
+            recs.append(d)
+            if len(recs) >= limit:
+                break
+        devices = {}
+        for d in recs:
+            x = devices.setdefault(d["ip"], {"ip": d["ip"], "name": d["name"], "model": d["model"], "os": d["os"],
+                                             "downloads": 0, "bytes": 0, "fromCache": 0, "fromOrigin": 0,
+                                             "first": d["t"], "last": d["t"], "variant": True})
+            x["downloads"] += 1
+            x["bytes"] += d["bytes"] or 0
+            x["fromCache"] += d["fromCache"] or 0
+            x["fromOrigin"] += d["fromOrigin"] or 0
+            x["first"], x["last"] = min(x["first"], d["t"]), max(x["last"], d["t"])
+            x["variant"] = x["variant"] and d["variant"]
+            x["model"] = x["model"] or d["model"]
+        return {"path": path, "start": start, "end": end, "sample": sample or (recs[0] if recs else None),
+                "devices": sorted(devices.values(), key=lambda x: -x["last"]),
+                "downloads": len(recs), "exact": sum(1 for d in recs if not d["variant"]),
+                "bytes": sum(d["bytes"] or 0 for d in recs), "records": recs[:200]}
+
     def rollouts(self, start=None, end=None, active_window=600):
         """App Store downloads grouped by app version: every device downloading the same app update
         fetches files from the same folder, so a big app update shows up as one group with many devices.
@@ -678,7 +736,7 @@ class ClientMonitor:
             key, fname = rollout_key(url)
             if not key:
                 continue
-            g = groups.setdefault(key, {"key": key, "kind": kind, "files": set(), "ips": set(), "active": set(),
+            g = groups.setdefault(key, {"key": key, "kind": kind, "url": url, "files": set(), "ips": set(), "active": set(),
                                         "downloads": 0, "bytes": 0, "sizes": [], "first": t, "last": t, "models": {}})
             size = b or measured or 0
             g["downloads"] += 1
@@ -696,7 +754,7 @@ class ClientMonitor:
         for g in groups.values():
             sizes = sorted(g["sizes"])
             name = next((n for n in (readable_app_name(f) for f in g["files"]) if n), None)
-            out.append({"key": g["key"], "kind": g["kind"], "name": name, "file": sorted(g["files"])[0],
+            out.append({"key": g["key"], "kind": g["kind"], "name": name, "file": sorted(g["files"])[0], "url": g["url"],
                         "devices": len(g["ips"]), "activeDevices": len(g["active"]), "downloads": g["downloads"],
                         "bytes": g["bytes"], "typicalSize": sizes[len(sizes) // 2] if sizes else None,
                         "first": g["first"], "last": g["last"], "variants": len(g["files"]),

@@ -142,6 +142,13 @@ select.btn{padding-right:28px}
 #updDialog{border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--ink);padding:18px 20px;width:min(520px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.25)}
 #updDialog::backdrop{background:rgba(0,0,0,.3)}
 #updDialog .mutelist div{justify-content:space-between}
+.dlopen .scrim{opacity:1;pointer-events:auto}.dlopen #dlPanel{transform:none}
+#dlPanel{width:min(760px,100vw)}
+a.dlink{color:inherit;text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent);text-underline-offset:2px;cursor:pointer}
+a.dlink:hover{color:var(--accent)}
+.cpf{display:flex;gap:6px;align-items:center}
+.cpf input{flex:1;min-width:0;border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:6px 8px;font:12px ui-monospace,Menlo,monospace;color:var(--ink)}
+.dlwhere{margin:4px 0 10px}
 .appopen .scrim{opacity:1;pointer-events:auto}.appopen #appPanel{transform:none}
 #appPanel{width:min(760px,100vw)}
 #logPanel{width:min(1040px,100vw)}
@@ -559,6 +566,13 @@ body.reporting .tip{z-index:80}
     <button class="btn icon" id="ipClose" aria-label="Close incident report">✕</button>
   </header>
   <div class="body" id="ipBody"></div>
+</aside>
+<aside class="drawer" id="dlPanel" aria-label="Download details" aria-hidden="true">
+  <header>
+    <div class="dp-head"><div class="dp-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></div><div class="dp-title"><h2 id="dlName">Download</h2><div id="dlSub"></div></div></div>
+    <button class="btn icon" id="dlClose" aria-label="Close download details">✕</button>
+  </header>
+  <div class="body" id="dlBody"></div>
 </aside>
 <aside class="drawer" id="appPanel" aria-label="App details" aria-hidden="true">
   <header>
@@ -1004,7 +1018,9 @@ function whatCell(x){
   const sub = [x.detail, x.named && x.file ? x.file : null].filter(Boolean).join(" · ");
   const unnamedApp = !x.named && /App Store|Mac App Store/.test(x.kind);
   const tipText = unnamedApp ? "Apple doesn't publish a catalog for App Store downloads, so only the file name is known." : (x.file || item);
-  return `<span class="dev" title="${esc(tipText)}"><span><span class="kindtag">${esc(x.kind)}</span>${x.named?`<b>${esc(short)}</b>`:esc(short)}</span>${sub?`<small>${esc(sub)}</small>`:""}</span>`;
+  const label = x.named ? `<b>${esc(short)}</b>` : esc(short);
+  const link = x.url ? `<a href="#" class="dlink" data-url="${esc(x.url)}" title="Who downloaded this, what it is, and where it's stored">${label || esc(x.file || "details")}</a>` : label;
+  return `<span class="dev" title="${esc(tipText)}"><span><span class="kindtag">${esc(x.kind)}</span>${link}</span>${sub?`<small>${esc(sub)}</small>`:""}</span>`;
 }
 function clientsUnavailable(el, c, which){
   const cl = c.clients;
@@ -1117,7 +1133,7 @@ function clientsRecentCompact(el, c){
   const w = document.createElement("div"); w.className = "clist scroll"; el.appendChild(w);
   w.innerHTML = rec.map(r => { const what = r.item || r.file || r.kind || "Download";
     return `<div class="crow" role="button" tabindex="0" title="${esc([r.kind, what, r.name || r.ip, new Date(r.t*1000).toLocaleString()].filter(Boolean).join(" · "))}">
-      <span class="dot" style="background:var(${KIND_COLOR(r.kind||"")})"></span><span class="nm">${esc(what)}</span><span class="v">${r.bytes ? fmtBytes(r.bytes) : ""}</span>
+      <span class="dot" style="background:var(${KIND_COLOR(r.kind||"")})"></span><span class="nm">${r.url ? `<a href="#" class="dlink" data-url="${esc(r.url)}">${esc(what)}</a>` : esc(what)}</span><span class="v">${r.bytes ? fmtBytes(r.bytes) : ""}</span>
       <span class="sub2">${esc(r.name || r.ip)} · ${esc(ago(r.t))}</span></div>`; }).join("");
   $$(".crow", w).forEach((row,i) => { row.onclick = () => pickDevice(rec[i].ip, rec[i].name); row.onkeydown = e => { if (e.key === "Enter") row.click(); }; });
 }
@@ -1317,7 +1333,7 @@ function rolloutWidget(el, c){
       const sub = [live ? `${fmtNum(g.activeDevices)} downloading now` : `last ${ago(g.last)}`, `started ${ago(g.first)}`,
         g.name && g.typicalSize ? `about ${fmtBytes(g.typicalSize)} each` : null, `${fmtBytes(g.bytes)} served`, g.servers ? g.servers.join(" + ") : null].filter(Boolean).join(" · ");
       return `<div class="crow" style="--w:${(g.devices/max*100).toFixed(1)}%;cursor:default" title="${esc(`Folder: ${g.key}\nExample file: ${g.file}${g.models?.length ? `\nModels: ${g.models.map(m=>m[0]+" ×"+m[1]).join(", ")}` : ""}`)}">
-        <span class="dot" style="background:var(${live ? "--good" : "--s1"})"></span><span class="nm">${esc(title)}</span><span class="v">${fmtNum(g.devices)} device${g.devices===1?"":"s"}</span>
+        <span class="dot" style="background:var(${live ? "--good" : "--s1"})"></span><span class="nm">${g.url ? `<a href="#" class="dlink" data-url="${esc(g.url)}" title="Who downloaded this and where it's stored">${esc(title)}</a>` : esc(title)}</span><span class="v">${fmtNum(g.devices)} device${g.devices===1?"":"s"}</span>
         <span class="sub2">${esc(sub)}</span></div>`; }).join("");
   }
   // Put names to the waves: what the MDM inventory says was updated recently.
@@ -1429,6 +1445,107 @@ async function runUpdate(targets, pin){
   };
   setTimeout(poll, 2000);
 }
+/* --- Download details: what it is, who downloaded it, where it's stored ---------- */
+let dlState = null;
+document.addEventListener("click", e => {
+  const a = e.target.closest?.(".dlink"); if (!a) return;
+  e.preventDefault(); e.stopPropagation(); openDownload(a.dataset.url);
+}, true);
+function closeDownload(){ dlState = null; document.getElementById("app").classList.remove("dlopen"); $("#dlPanel").setAttribute("aria-hidden","true"); }
+async function openDownload(url){
+  if (!url) return;
+  dlState = {url};
+  document.getElementById("app").classList.add("dlopen"); $("#dlPanel").setAttribute("aria-hidden","false");
+  const fname = (url.split("?")[0].split("/").pop()) || url;
+  $("#dlName").textContent = fname; $("#dlSub").textContent = "";
+  $("#dlBody").innerHTML = `<div class="empty">Looking up this download…</div>`;
+  const n = nowS(), qs = `/api/download?url=${encodeURIComponent(url)}&start=${Math.round(n - 30*86400)}&end=${Math.round(n)}`;
+  let parts;
+  if (demo) parts = [{srv: "Demo Cache", d: demoDownload(url)}];
+  else {
+    const res = await Promise.allSettled(currentTargets().map(async t => ({srv: serverName(t, serverInfo[t.id]), d: await getJSON(t.url, qs)})));
+    parts = res.map((r,i) => r.status === "fulfilled" ? r.value : {srv: serverName(currentTargets()[i], serverInfo[currentTargets()[i].id]), err: r.reason?.message || "unreachable"});
+  }
+  if (dlState?.url !== url) return;
+  renderDownload(parts, url);
+}
+function copyField(val){
+  const id = "cp" + Math.random().toString(36).slice(2,8);
+  return `<span class="cpf"><input readonly id="${id}" value="${esc(val)}" aria-label="Path"><button class="btn" data-copy="${id}">Copy</button></span>`;
+}
+function renderDownload(parts, url){
+  const ok = parts.filter(p => p.d && !p.d.error);
+  const body = $("#dlBody"); body.innerHTML = "";
+  const errs = parts.filter(p => p.err || p.d?.error);
+  if (!ok.length){ body.innerHTML = `<div class="empty">Couldn't look this up: ${esc(errs.map(p => `${p.srv}: ${/404/.test(p.err||"") ? "needs CacheDash 1.20" : (p.err || p.d.error)}`).join("; "))}</div>`; return; }
+  const first = ok[0].d, w = ok.map(p => p.d.what).find(x => x?.named) || first.what || {};
+  const multi = parts.length > 1;
+  const title = w.named ? w.item : (w.file || first.path.split("/").pop());
+  $("#dlName").textContent = title || "Download";
+  $("#dlSub").textContent = [w.kind, first.host].filter(Boolean).join(" · ");
+  const sizes = ok.flatMap(p => (p.d.where?.matches || []).map(m => m.bytes || m.diskBytes)).filter(Boolean);
+  const size = sizes[0] || w.bytes;
+  const cat = ok.map(p => p.d.catalog).find(Boolean);
+  // What it is
+  body.insertAdjacentHTML("beforeend", `<div class="dp-sect"><h4>What it is</h4></div><dl class="kv">
+    <dt>Type</dt><dd>${esc(w.kind || "–")}</dd>
+    <dt>Name</dt><dd>${w.named ? `<b>${esc(w.item)}</b>` : `<span class="sub">${/App Store/.test(w.kind||"") ? "Apple doesn't publish names for App Store downloads" : "Not in Apple's public catalogs"}</span>`}</dd>
+    ${w.detail ? `<dt>Details</dt><dd>${esc(w.detail)}</dd>` : ""}
+    ${cat?.product ? `<dt>Apple product ID</dt><dd>${esc(cat.product)}</dd>` : ""}
+    <dt>File</dt><dd style="text-align:left">${esc(first.path.split("/").pop())}</dd>
+    ${size ? `<dt>Size</dt><dd>${fmtBytes(size)}</dd>` : ""}
+    <dt>Apple address</dt><dd style="text-align:left;font:12px ui-monospace,Menlo,monospace;word-break:break-all">${esc(first.appleUrl || url)}</dd></dl>`);
+  // Where it's stored
+  body.insertAdjacentHTML("beforeend", `<div class="dp-sect"><h4>Where it's stored on the cache</h4></div>`);
+  for (const p of parts){
+    const W = p.d?.where;
+    let h = multi ? `<div style="margin:8px 0 2px"><b>${esc(p.srv)}</b></div>` : "";
+    if (p.err || p.d?.error) h += `<div class="note">Couldn't ask this cache: ${esc(p.err || p.d.error)}</div>`;
+    else if (!W || W.error) h += `<div class="note">${esc(W?.error || "Not available")}</div>`;
+    else if (!W.matches.length) h += `<div class="note">Not stored on this cache right now. It may have been removed to make space, or it was passed straight through without being kept. The cache's data folder is <code>${esc(W.dataPath)}</code>.</div>`;
+    else for (const m of W.matches){
+      const fpath = m.files[0]?.path || (m.folder ? m.folder + "/0" : "");
+      const created = m.dates?.CREATIONDATE || m.dates?.CREATIONDATE2, used = Object.entries(m.dates || {}).find(([k]) => /ACCESS|USED/i.test(k))?.[1];
+      h += `<div class="dlwhere">${fpath ? copyField(fpath) : ""}
+        <div class="note" style="margin-top:4px">${m.onDisk ? `${fmtBytes(m.diskBytes)} on disk${m.files.length > 1 ? ` in ${m.files.length} parts` : ""}` : "Listed in the cache's database, but the folder wasn't found"}${created ? ` · cached ${esc(new Date(created*1000).toLocaleString([], {month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}))}` : ""}${used ? ` · last used ${esc(ago(used))}` : ""}${W.matchedBy === "file name" ? " · matched by file name" : ""}</div>
+        ${fpath ? `<div class="note">To see it in Finder on that Mac: <code>sudo open -R ${esc(JSON.stringify(fpath))}</code>. Apple stores each item as a folder named by its ID with the content in a file called <code>0</code>. Don't move or delete it by hand: the cache manages these files.</div>` : ""}</div>`;
+    }
+    body.insertAdjacentHTML("beforeend", h);
+  }
+  // Who downloaded it
+  const devs = ok.flatMap(p => (p.d.who?.devices || []).map(d => ({...d, server: multi ? p.srv : null})));
+  const merged = new Map();
+  for (const d of devs){ const x = merged.get(d.ip); if (!x) merged.set(d.ip, {...d, servers: d.server ? [d.server] : []});
+    else { x.downloads += d.downloads; x.bytes += d.bytes; x.fromCache += d.fromCache; x.fromOrigin += d.fromOrigin; x.first = Math.min(x.first, d.first); x.last = Math.max(x.last, d.last); x.variant = x.variant && d.variant; if (d.server) x.servers.push(d.server); } }
+  const list = [...merged.values()].sort((a,b) => (+a.variant) - (+b.variant) || b.last - a.last);
+  const exact = list.filter(d => !d.variant).length;
+  body.insertAdjacentHTML("beforeend", `<div class="dp-sect"><h4>Who downloaded it · last 30 days (${fmtNum(exact)} device${exact === 1 ? "" : "s"}${list.length > exact ? ` + ${fmtNum(list.length - exact)} other model${list.length - exact === 1 ? "" : "s"}` : ""})</h4></div>`);
+  if (!list.length){ empty(body, "No device downloaded this file through the cache in the last 30 days (or it happened before device monitoring was recording)."); return; }
+  const when = t => new Date(t*1000).toLocaleString([], {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
+  const wrap = document.createElement("div"); wrap.className = "scroll"; body.appendChild(wrap);
+  table(wrap, ["Device", "When", "Times", "Size", "Served from"], list.slice(0, 500).map(d => {
+    const src = d.fromOrigin > 0 ? `${Math.round(d.fromCache / Math.max(1, d.fromCache + d.fromOrigin) * 100)}% cache` : d.fromCache > 0 ? "Cache" : "–";
+    return [devCell({...d, server: d.servers.join(", ") || null}) + (d.variant ? `<small class="sub">version for a different device model</small>` : ""),
+      `<span class="nowrap">${esc(d.downloads > 1 ? when(d.first) + " –" : "")}${d.downloads > 1 ? "<br>" : ""}${esc(when(d.last))}</span>`,
+      fmtNum(d.downloads), d.bytes ? fmtBytes(d.bytes) : "–", esc(src)]; }), [false,false,1,1,false], "html");
+  colHide(wrap, {2:"s", 4:"m"});
+  $$("tbody tr", wrap).forEach((tr,i) => { tr.classList.add("click"); tr.title = "Show this device"; tr.onclick = () => { closeDownload(); pickDevice(list[i].ip, list[i].name); }; });
+  $$("[data-copy]", body).forEach(b => b.onclick = async () => { const inp = document.getElementById(b.dataset.copy); inp.select();
+    try { await navigator.clipboard.writeText(inp.value); } catch { document.execCommand("copy"); } b.textContent = "Copied ✓"; setTimeout(() => b.textContent = "Copy", 1500); });
+}
+function demoDownload(url){
+  const c = demoClients(1), fname = url.split("?")[0].split("/").pop();
+  const recs = c.recent.filter(r => (r.file || r.item) === fname || r.url === url);
+  const r0 = recs[0] || {kind:"macOS software update", item:"Safari 26.1", named:true, file:fname};
+  const devs = new Map(); recs.forEach(r => { const x = devs.get(r.ip) || {ip:r.ip, name:r.name, model:r.model, os:r.os, downloads:0, bytes:0, fromCache:0, fromOrigin:0, first:r.t, last:r.t, variant:false};
+    x.downloads++; x.bytes += r.bytes; x.fromCache += r.fromCache; x.fromOrigin += r.fromOrigin; x.first = Math.min(x.first, r.t); x.last = Math.max(x.last, r.t); devs.set(r.ip, x); });
+  return {server:"Demo Cache", url, appleUrl:"https://swcdn.apple.com/content/downloads/12/34/093-55555/abcdef/" + fname, host:"swcdn.apple.com", path:"/content/downloads/12/34/093-55555/abcdef/" + fname,
+    what:{...r0, file: fname}, catalog: r0.named ? {product:"093-55555"} : null,
+    who:{devices:[...devs.values()]}, where:{dataPath:"/Library/Application Support/Apple/AssetCache/Data", matchedBy:"address",
+      matches:[{guid:"270493E7-E048-40E8-A9E8-C498FD34585E", folder:"/Library/Application Support/Apple/AssetCache/Data/270493E7-E048-40E8-A9E8-C498FD34585E", onDisk:true,
+        bytes:r0.bytes || 1.4e8, diskBytes:r0.bytes || 1.4e8, files:[{name:"0", path:"/Library/Application Support/Apple/AssetCache/Data/270493E7-E048-40E8-A9E8-C498FD34585E/0"}], dates:{CREATIONDATE: nowS()-3*86400}}]}};
+}
+
 /* --- CPU & memory -------------------------------------------------------- */
 const pctColor = (v, warn=80, crit=90) => v >= crit ? "var(--critical)" : v >= warn ? "var(--warning)" : "var(--s1)";
 function fmtUptime(sec){ if (!sec) return "–"; const d = Math.floor(sec/86400), h = Math.floor(sec%86400/3600), m = Math.floor(sec%3600/60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; }
@@ -3031,7 +3148,8 @@ function demoClients(nServers=1){
   const items = [["App Store app","Keynote-14.4.signed.dpkg.ipa",8.1e8],["iOS/iPadOS update","iPadOS 18.7 (22H20)",6.1e9,"update from 18.6","9f3c2a1b7e.zip"],["macOS software update","Safari 26.1",1.4e8,null,"Safari26.1SequoiaAuto.pkg"],["macOS security data","XProtectPayloads 157",2.1e7,null,"XProtectPayloads_10_15-157.pkg"],["macOS installer","macOS Tahoe 26.4",1.5e10,null,"InstallAssistant.pkg"],["App Store app","GarageBand-2.3.15.signed.dpkg.ipa",1.8e9]];
   for (let i=0;i<40;i++){
     const d = devs[i%devs.length], it = items[(i*7)%items.length], b = it[2]*(0.6+((i*37)%10)/10);
-    const r = {t: now - i*173, ip:d.ip, name:d.name, model:d.model, os:d.os, kind:it[0], item:it[1], detail:it[3]||null, file:it[4]||null, named:!!it[4], bytes:b, fromCache: i%4 ? b : b*0.2, fromOrigin: i%4 ? 0 : b*0.8};
+    const r = {t: now - i*173, ip:d.ip, name:d.name, model:d.model, os:d.os, kind:it[0], item:it[1], detail:it[3]||null, file:it[4]||null, named:!!it[4], bytes:b,
+      url:`http://10.0.1.15:49164/content/downloads/12/34/093-55555/abcdef/${it[4] || it[1]}?source=swcdn.apple.com`, fromCache: i%4 ? b : b*0.2, fromOrigin: i%4 ? 0 : b*0.8};
     if (state.device && state.device.ip !== d.ip) continue;
     recent.push(r);
     const tp = top[d.ip] ||= {ip:d.ip, name:d.name, model:d.model, os:d.os, bytes:0, downloads:0};
@@ -3103,8 +3221,9 @@ const openDrawerBase = (tab) => { document.getElementById("app").classList.add("
 const closeDrawer = () => document.getElementById("app").classList.remove("open");
 function openDrawer(tab="widgets"){ openDrawerBase(tab); renderAlertSettings(); renderUpdateSettings(); }
 $("#customizeBtn").onclick = () => openDrawer();
-$("#closeDrawer").onclick = closeDrawer; $("#scrim").onclick = () => { closeDrawer(); closeDevice(); closeIncident(); closeLogs(); closeApp(); };
+$("#closeDrawer").onclick = closeDrawer; $("#scrim").onclick = () => { closeDrawer(); closeDevice(); closeIncident(); closeLogs(); closeApp(); closeDownload(); };
 $("#apClose").onclick = closeApp;
+$("#dlClose").onclick = closeDownload;
 $("#dpClose").onclick = closeDevice;
 $("#ipClose").onclick = closeIncident;
 $("#lgClose").onclick = closeLogs;
@@ -3391,7 +3510,7 @@ $("#rpFrom").onchange = $("#rpTo").onchange = () => { rpState().preset = "custom
 $("#rpServer").onchange = runReport;
 $("#rpPrint").onclick = () => window.print();
 
-addEventListener("keydown", e => { if (e.key === "Escape" && !$("#report").hidden){ closeReport(); return; } if (e.key === "Escape"){ closeDrawer(); closePop(); closeDevice(); closeIncident(); closeLogs(); closeApp(); } });
+addEventListener("keydown", e => { if (e.key === "Escape" && !$("#report").hidden){ closeReport(); return; } if (e.key === "Escape"){ closeDrawer(); closePop(); closeDevice(); closeIncident(); closeLogs(); closeApp(); closeDownload(); } });
 function selectTab(t){ $$("#drawerTabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.tab===t)); ["widgets","servers","settings"].forEach(x => $("#tab-"+x).hidden = x!==t); }
 $$("#drawerTabs button").forEach(b => b.onclick = () => selectTab(b.dataset.tab));
 $("#addServer").onclick = () => {

@@ -7,7 +7,7 @@ CacheDash is meant to be read before you run it. This page lists everything it t
 - **Python standard library only.** No third-party packages, nothing downloaded at install or run time.
 - **No telemetry.** CacheDash never contacts the author or any analytics service.
 - **The dashboard is one self-contained HTML file.** It loads no external scripts, fonts or trackers, and only talks to your own caching Macs.
-- **Read-only toward macOS.** It reads Apple's databases and logs and runs status commands. It never changes Content Caching settings, deletes cached content or modifies the system. Its only writes are its own files in `/usr/local/cachedash` and its log at `/var/log/cachedash.log`.
+- **Read-only toward macOS.** It reads Apple's databases and logs (including a snapshot copy of the cache's index, AssetInfo.db, and the names and sizes of cached files) and runs status commands. It never changes Content Caching settings, deletes cached content or modifies the system. Its only writes are its own files in `/usr/local/cachedash` and its log at `/var/log/cachedash.log`.
 
 ## Why it runs as root
 
@@ -31,6 +31,7 @@ Every command is run directly (never through a shell) with fixed arguments:
 | `pgrep`, `ps`, `top`, `vm_stat`, `sysctl`, `pmset -g therm` | CPU, memory, uptime, temperature | incident.py, clientmon.py |
 | `lsof -p <AssetCache pid>`, `netstat -s / -L / -I` | Connection limits and link errors when traffic drops | incident.py |
 | `git pull`, `python3 -m unittest`, `install.sh` (via `updater.sh`, launchd job `local.cachedash.updater`) | Only when you run `git up` or click Update with the right PIN | update.sh, updater.sh |
+| `defaults read /Library/Preferences/com.apple.AssetCache.plist DataPath` | Where the cache keeps its files (for download details) | cachestore.py |
 | `ifconfig`, `route -n get default` | Find the network interface and its speed | alerts.py, clientmon.py |
 | `defaults read /Library/Preferences/com.apple.SoftwareUpdate CatalogURL` | Use your Software Update catalog if you set one | catalog.py |
 
