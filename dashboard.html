@@ -149,6 +149,9 @@ a.dlink:hover{color:var(--accent)}
 .cpf{display:flex;gap:6px;align-items:center}
 .cpf input{flex:1;min-width:0;border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:6px 8px;font:12px ui-monospace,Menlo,monospace;color:var(--ink)}
 .dlwhere{margin:4px 0 10px}
+#viewsSettings .mutelist div{flex-wrap:wrap;gap:6px}
+#viewsSettings .mutelist div>span{flex:1 1 100%}
+#viewsSettings .mutelist .btn{padding:3px 9px;font-size:12px}
 .appopen .scrim{opacity:1;pointer-events:auto}.appopen #appPanel{transform:none}
 #appPanel{width:min(760px,100vw)}
 #logPanel{width:min(1040px,100vw)}
@@ -496,6 +499,10 @@ body.reporting .tip{z-index:80}
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
         <span class="badge" id="bellBadge" hidden></span>
       </button>
+      <button class="btn" id="viewsBtn" title="Saved views: layouts that are the same on every computer" aria-haspopup="menu">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
+        Views
+      </button>
       <button class="btn primary" id="customizeBtn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
         Widgets
@@ -537,6 +544,8 @@ body.reporting .tip{z-index:80}
       <label class="wrow"><label><input type="checkbox" id="stackLayout"> <span>Stack small tiles beside larger ones<small>Half-width tiles are two rows tall, so two small tiles fit on top of each other next to them instead of stretching.</small></span></label></label>
       <label class="wrow"><label><input type="checkbox" id="denseLayout"> <span>Fill empty gaps automatically<small>Small tiles move up into empty spaces, so tiles may appear slightly out of order.</small></span></label></label>
       <button class="btn" id="resetLayout">Reset widgets to default</button>
+      <h4>Saved views</h4>
+      <div id="viewsSettings" class="sub">Loading…</div>
       <h4>Updates</h4>
       <div id="updSettings" class="sub">Loading…</div>
       <h4>Alerts</h4>
@@ -847,6 +856,7 @@ const PRESETS = {
 };
 const DEFAULT_ENABLED = ["al_status","k_served","k_hit","k_saved","k_pressure","cl_live","c_source","c_throughput","cl_top","cl_kinds","b_source","b_purge_age","s_storage","s_types","h_heat","s_health"];
 
+let FIRST_VISIT = !loadState();
 let state = Object.assign({
   servers:[{id:"local", name:"", url:""}],
   active:"local",
@@ -1544,6 +1554,112 @@ function demoDownload(url){
     who:{devices:[...devs.values()]}, where:{dataPath:"/Library/Application Support/Apple/AssetCache/Data", matchedBy:"address",
       matches:[{guid:"270493E7-E048-40E8-A9E8-C498FD34585E", folder:"/Library/Application Support/Apple/AssetCache/Data/270493E7-E048-40E8-A9E8-C498FD34585E", onDisk:true,
         bytes:r0.bytes || 1.4e8, diskBytes:r0.bytes || 1.4e8, files:[{name:"0", path:"/Library/Application Support/Apple/AssetCache/Data/270493E7-E048-40E8-A9E8-C498FD34585E/0"}], dates:{CREATIONDATE: nowS()-3*86400}}]}};
+}
+
+/* --- Saved views: named layouts kept on the caching Macs, the same on every computer --- */
+let viewsCache = {views: [], default: null}, viewsDemo = [];
+const LAYOUT_FIELDS = ["order", "enabled", "sizes", "stack", "dense", "heatRange", "hours", "bucket"];
+function currentLayout(){ const o = {}; for (const k of LAYOUT_FIELDS) if (state[k] !== undefined && state[k] !== null) o[k] = JSON.parse(JSON.stringify(state[k])); return o; }
+async function loadViews(){
+  if (demo){ viewsCache = {views: viewsDemo, default: viewsCache.default}; return viewsCache; }
+  const res = await Promise.allSettled(state.servers.map(s => getJSON(s.url, "/api/views")));
+  const ok = res.filter(r => r.status === "fulfilled" && !r.value.disabled).map(r => r.value);
+  const byName = new Map();
+  for (const d of ok) for (const v of d.views || []){ const k = v.name.toLowerCase(), cur = byName.get(k); if (!cur || (v.updated||0) > (cur.updated||0)) byName.set(k, v); }
+  viewsCache = {views: [...byName.values()].sort((a,b) => a.name.localeCompare(b.name)), default: ok.map(d => d.default).find(Boolean) || null, reachable: ok.length};
+  return viewsCache;
+}
+async function viewsPost(action, body){
+  if (demo){ // sample data: keep views in this page only
+    if (action === "save"){ viewsDemo = viewsDemo.filter(v => v.name.toLowerCase() !== body.name.toLowerCase()); viewsDemo.push({name: body.name, layout: body.layout, updated: nowS()}); if (body.default) viewsCache.default = body.name; }
+    if (action === "delete") viewsDemo = viewsDemo.filter(v => v.name !== body.name);
+    if (action === "rename") viewsDemo.forEach(v => { if (v.name === body.name) v.name = body.to; });
+    if (action === "default") viewsCache.default = body.name;
+    return loadViews();
+  }
+  const res = await Promise.allSettled(state.servers.map(s => postJSON(s.url, "/api/views/" + action, body)));
+  const bad = res.filter(r => r.status === "rejected");
+  if (bad.length === res.length) throw new Error(bad[0].reason?.message || "no caching Mac answered");
+  if (bad.length) toast(`Saved, but ${bad.length} caching Mac${bad.length > 1 ? "s" : ""} couldn't be reached. They'll get it next time you save.`);
+  return loadViews();
+}
+function applyView(v){
+  const L = v.layout || {};
+  for (const k of LAYOUT_FIELDS) if (L[k] !== undefined) state[k] = JSON.parse(JSON.stringify(L[k]));
+  for (const w of WIDGETS) if (!state.order.includes(w.id)) state.order.push(w.id);   // widgets added since the view was saved
+  state.order = state.order.filter(id => WIDGETS.some(w => w.id === id));
+  state.enabled = state.enabled.filter(id => WIDGETS.some(w => w.id === id));
+  state.sizes ||= {};
+  state.activeView = v.name; state.range = null;
+  saveState(); $("#grid").classList.toggle("dense", !!state.dense); closeMenu(); load();
+  if (isDrawerOpen()) renderDrawer();
+  toast(`View “${v.name}”`);
+}
+const layoutMatches = v => JSON.stringify(["order","enabled","sizes"].map(k => v.layout?.[k] ?? null)) === JSON.stringify(["order","enabled","sizes"].map(k => {
+  if (k === "order") return state.order.filter(id => (v.layout?.order || []).includes(id)); return state[k] ?? null; }));
+async function showViewsMenu(btn){
+  closeMenu();
+  const m = document.createElement("div"); m.className = "menu"; m.setAttribute("role", "menu"); m.style.minWidth = "280px";
+  m.innerHTML = `<div class="mh">Loading saved views…</div>`;
+  document.body.appendChild(m); openMenu = m;
+  const place = () => { const r = btn.getBoundingClientRect(); m.style.top = Math.min(innerHeight - m.offsetHeight - 8, r.bottom + 6) + "px"; m.style.left = Math.max(8, Math.min(innerWidth - m.offsetWidth - 8, r.right - m.offsetWidth)) + "px"; };
+  place();
+  try { await loadViews(); } catch {}
+  if (openMenu !== m) return;
+  const V = viewsCache.views, act = V.find(v => v.name === state.activeView);
+  m.innerHTML = `<div class="mh">Saved views${demo ? " (sample data: this page only)" : " · the same on every computer"}</div>
+    ${V.length ? V.map((v,i) => `<button data-v="${i}">${v.name === state.activeView ? "✓ " : ""}${esc(v.name)}${viewsCache.default === v.name ? ` <span class="sub">· default</span>` : ""}</button>`).join("") : `<div class="mh" style="color:var(--ink-2)">None yet. Arrange the widgets, then save them here.</div>`}
+    <div style="border-top:1px solid var(--grid);margin-top:4px;padding-top:4px"></div>
+    ${act ? `<button data-a="update">Save changes to “${esc(act.name)}”</button>` : ""}
+    <button data-a="new">Save current layout as a new view…</button>
+    <div data-form hidden style="padding:6px 10px;display:grid;gap:6px">
+      <input type="text" maxlength="60" placeholder="Name, e.g. Rollout day" style="border:1px solid var(--border);background:var(--page);border-radius:8px;padding:6px 9px;font-size:13px">
+      <label style="border:0;margin:0;padding:0"><input type="checkbox"> Default for computers opening the dashboard for the first time</label>
+      <div class="presets" style="justify-content:flex-end"><button class="btn primary" data-a="save" style="width:auto;padding:5px 12px;color:#fff">Save</button></div>
+    </div>
+    <button data-a="manage">Manage saved views…</button>`;
+  place();
+  $$("[data-v]", m).forEach(b => b.onclick = e => { e.stopPropagation(); applyView(V[+b.dataset.v]); });
+  $('[data-a="update"]', m)?.addEventListener("click", async e => { e.stopPropagation();
+    try { await viewsPost("save", {name: act.name, layout: currentLayout()}); closeMenu(); toast(`Saved changes to “${act.name}”`); } catch(err){ toast("Couldn't save: " + err.message); } });
+  $('[data-a="new"]', m).onclick = e => { e.stopPropagation(); $("[data-form]", m).hidden = false; e.currentTarget.hidden = true; $("[data-form] input[type=text]", m).focus(); place(); };
+  const doSave = async () => { const name = $("[data-form] input[type=text]", m).value.trim(); if (!name) return $("[data-form] input[type=text]", m).focus();
+    const exists = V.some(v => v.name.toLowerCase() === name.toLowerCase());
+    try { await viewsPost("save", {name, layout: currentLayout(), default: $("[data-form] input[type=checkbox]", m).checked || undefined});
+      state.activeView = name; saveState(); closeMenu(); toast(exists ? `Replaced view “${name}”` : `Saved view “${name}”`); } catch(err){ toast("Couldn't save: " + err.message); } };
+  $('[data-a="save"]', m).onclick = e => { e.stopPropagation(); doSave(); };
+  $("[data-form] input[type=text]", m).onkeydown = e => { if (e.key === "Enter") doSave(); };
+  $("[data-form]", m).onclick = e => e.stopPropagation();
+  $('[data-a="manage"]', m).onclick = e => { e.stopPropagation(); closeMenu(); openDrawer("settings"); setTimeout(() => $("#viewsSettings")?.scrollIntoView({block:"start"}), 50); };
+}
+async function renderViewsSettings(){
+  const box = $("#viewsSettings"); if (!box) return;
+  box.textContent = "Loading…";
+  try { await loadViews(); } catch {}
+  const V = viewsCache.views;
+  if (!V.length){ box.innerHTML = `<p class="sub" style="margin:4px 0 12px">No saved views yet. Arrange the widgets, then use <b>Views → Save current layout as a new view</b>. Saved views are kept on the caching Macs, so they're the same on every computer.</p>`; return; }
+  box.innerHTML = `<div class="mutelist">${V.map((v,i) => `<div data-i="${i}"><span><b>${esc(v.name)}</b>${viewsCache.default === v.name ? ` · <span class="sub">default for new computers</span>` : ""}<br><span class="sub">${(v.layout?.enabled||[]).length} widgets · saved ${esc(ago(v.updated))}</span></span>
+      <button class="btn" data-a="apply">Show</button><button class="btn" data-a="def">${viewsCache.default === v.name ? "Not default" : "Make default"}</button><button class="btn" data-a="ren">Rename</button><button class="btn" data-a="del">Delete</button></div>`).join("")}</div>
+    <p class="note">The default view is what a computer sees the first time it opens the dashboard. Each computer can then switch views from the <b>Views</b> menu.</p>`;
+  $$("[data-i]", box).forEach(row => { const v = V[+row.dataset.i];
+    $('[data-a="apply"]', row).onclick = () => applyView(v);
+    $('[data-a="def"]', row).onclick = async () => { try { await viewsPost("default", {name: viewsCache.default === v.name ? null : v.name}); renderViewsSettings(); } catch(e){ toast(e.message); } };
+    $('[data-a="del"]', row).onclick = async e => { const b = e.currentTarget; if (b.dataset.sure !== "1"){ b.dataset.sure = "1"; b.textContent = "Delete?"; return; }
+      try { await viewsPost("delete", {name: v.name}); if (state.activeView === v.name){ state.activeView = null; saveState(); } renderViewsSettings(); } catch(e2){ toast(e2.message); } };
+    $('[data-a="ren"]', row).onclick = () => { const span = row.querySelector("span");
+      span.innerHTML = `<input type="text" maxlength="60" value="${esc(v.name)}" style="border:1px solid var(--border);background:var(--page);border-radius:8px;padding:4px 8px;font-size:13px;width:100%">`;
+      const inp = $("input", span); inp.focus(); inp.select();
+      inp.onkeydown = async e => { if (e.key === "Escape") return renderViewsSettings(); if (e.key !== "Enter") return;
+        try { await viewsPost("rename", {name: v.name, to: inp.value.trim()}); if (state.activeView === v.name){ state.activeView = inp.value.trim(); saveState(); } renderViewsSettings(); } catch(e2){ toast(e2.message); } }; };
+  });
+}
+/* A computer opening the dashboard for the first time starts with the default view. */
+async function applyDefaultViewIfNew(){
+  if (!FIRST_VISIT || demo) return;
+  FIRST_VISIT = false;
+  try { await loadViews(); } catch { return; }
+  const v = viewsCache.views.find(x => x.name === viewsCache.default);
+  if (v) applyView(v);
 }
 
 /* --- CPU & memory -------------------------------------------------------- */
@@ -3219,7 +3335,7 @@ gridSortable($("#grid"));
 sortable($("#widgetList"), ".wrow[data-id]", ".dgrip");
 const openDrawerBase = (tab) => { document.getElementById("app").classList.add("open"); selectTab(tab); renderDrawer(); };
 const closeDrawer = () => document.getElementById("app").classList.remove("open");
-function openDrawer(tab="widgets"){ openDrawerBase(tab); renderAlertSettings(); renderUpdateSettings(); }
+function openDrawer(tab="widgets"){ openDrawerBase(tab); renderAlertSettings(); renderUpdateSettings(); renderViewsSettings(); }
 $("#customizeBtn").onclick = () => openDrawer();
 $("#closeDrawer").onclick = closeDrawer; $("#scrim").onclick = () => { closeDrawer(); closeDevice(); closeIncident(); closeLogs(); closeApp(); closeDownload(); };
 $("#apClose").onclick = closeApp;
@@ -3556,7 +3672,8 @@ $("#bellBtn").onclick = () => {
   $('#grid .card[data-id="al_events"]')?.scrollIntoView({behavior:"smooth", block:"start"});
 };
 setInterval(() => { if (state.auto && !state.range && !document.hidden && !document.getElementById("app").classList.contains("open")) load(); }, 60000);
-load();
+$("#viewsBtn").onclick = e => { e.stopPropagation(); openMenu && openMenu.dataset.kind === "views" ? closeMenu() : showViewsMenu(e.currentTarget).then(() => { if (openMenu) openMenu.dataset.kind = "views"; }); };
+load().then(applyDefaultViewIfNew);
 </script>
 </body>
 </html>

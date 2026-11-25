@@ -67,8 +67,9 @@ import appupdates  # noqa: E402
 import cluster  # noqa: E402
 import selfupdate  # noqa: E402
 import cachestore  # noqa: E402
+import views  # noqa: E402
 
-VERSION = "1.20.0"
+VERSION = "1.21.0"
 DEFAULT_DB = "/Library/Application Support/Apple/AssetCache/Metrics/Metrics.db"
 CORE_DATA_EPOCH = 978307200  # 2001-01-01T00:00:00Z in Unix seconds
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -491,6 +492,7 @@ class Handler(BaseHTTPRequestHandler):
     apps = None
     updates = None
     updater = None
+    views = None
     store_files = None    # cachestore.CacheStore: where downloads are kept on disk
     access = Access()
     name = socket.gethostname()
@@ -558,6 +560,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, self.alerts.mute(body["rule"], body.get("days")))
             if u.path == "/api/alerts/unmute" and self.alerts:
                 return self._send(200, self.alerts.unmute(body["rule"]))
+            if u.path.startswith("/api/views/") and self.views:
+                act = u.path.rsplit("/", 1)[-1]
+                try:
+                    if act == "save":
+                        return self._send(200, self.views.save(body.get("name"), body.get("layout"), body.get("default")))
+                    if act == "delete":
+                        return self._send(200, self.views.delete(body.get("name", "")))
+                    if act == "rename":
+                        return self._send(200, self.views.rename(body.get("name", ""), body.get("to", "")))
+                    if act == "default":
+                        return self._send(200, self.views.set_default(body.get("name")))
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
             if u.path == "/api/update/check" and self.updates:
                 if self.updates.raw:
                     self.updates.check()
@@ -653,6 +668,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/update":
                 return self._send(200, {**(self.updates.state if self.updates else {}),
                                         "status": self.updater.status() if self.updater else None})
+            if u.path == "/api/views":
+                return self._send(200, self.views.list() if self.views else {"views": [], "default": None, "disabled": True})
             if u.path == "/api/download":
                 url = (q.get("url") or [""])[0][:2000]
                 if not url:
@@ -808,6 +825,7 @@ def main():
             Handler.clients.on_log_line = Handler.alerts.note_log_line
     Handler.updates = UpdateCheck(os.path.join(HERE, "source.json"), enabled=not a.no_update_check)
     Handler.store_files = cachestore.CacheStore()
+    Handler.views = views.Views(os.path.join(HERE, "views.json"))
     Handler.updater = selfupdate.Updater(HERE, VERSION, Handler.updates.source)
     if not a.no_apps:
         Handler.apps = appupdates.AppUpdates(a.apps_db, a.mosyle, country=a.app_store_country.lower()[:2])

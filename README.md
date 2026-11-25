@@ -1,4 +1,4 @@
-# CacheDash: Content Cache dashboard for macOS 27 (v1.20)
+# CacheDash: Content Cache dashboard for macOS 27 (v1.21)
 
 > **Built with Claude.** CacheDash was written with [Claude](https://claude.ai), Anthropic's AI assistant, directed and tested by a school IT administrator. Read the code before you run it as root: [SECURITY.md](SECURITY.md) and [About this project](#about-this-project) explain what it does and how it was made.
 
@@ -34,6 +34,7 @@ Free and open source under the MIT License. It uses only the Python standard lib
 | `cluster.py` | Connects the caching Macs: finds the others, checks addresses, and tells each Mac about the others. |
 | `selfupdate.py`, `updater.sh` | The dashboard's Update button: PIN check, and the small service that runs `git up` when you click it. |
 | `cachestore.py` | Finds where a download is stored in the cache (read-only). |
+| `views.py` | Saved views: named widget layouts kept on the caching Macs, the same on every computer. |
 | `update.sh` | What `git up` runs: pulls the latest version, runs the tests, installs it. |
 | `publish.sh` | Puts a new release zip into your GitHub repo (tests, copy, commit, push). |
 
@@ -154,6 +155,19 @@ Hover over any widget to see its controls in the top-right corner:
 - **✕** hides the widget.
 
 You can also drag rows in the **Widgets** panel to reorder them.
+
+### Saved views (the same on every computer)
+
+Your layout normally lives in the browser you arranged it in, so another computer starts with a different one. **Saved views** fix that: they're kept on the caching Macs, so every computer sees the same list.
+
+- **Save:** arrange the widgets, click **Views** in the header, then **Save current layout as a new view…**, name it (for example *Rollout day* or *Morning check*) and click **Save**. Saving with an existing name replaces that view.
+- **Switch:** click **Views** and pick one. The widgets, their order and sizes, the stacking options and the time range switch to that view.
+- **Change one:** after switching to a view and moving things around, **Views → Save changes to “…”** updates it.
+- **Default for new computers:** tick the box when saving, or use **Make default** in **Widgets → Settings → Saved views**. A computer opening the dashboard for the first time starts with that view.
+- **Rename, delete or change the default** in **Widgets → Settings → Saved views**.
+
+A view only holds the layout, never server addresses or device information. Views are saved on every caching Mac the dashboard knows about, in `views.json`, and are kept by `git up` and the Update button.
+
 
 **Stacking (on by default):** half-width tiles are two rows tall, so two small tiles sit on top of each other beside them instead of stretching to match. Put small tiles just before or after a half-width tile to pair them up. A small tile with nothing under it stretches to fill the height. Turn this off in **Widgets → Settings → Stack small tiles beside larger ones**. It switches itself off on screens narrower than 1100 pixels, where tiles wrap anyway.
 

@@ -60,7 +60,7 @@ The server listens on port 8027 (change with `--port`, or bind to one address wi
 - **The Update button needs a PIN** set on the caching Mac (`sudo zsh install.sh --pin`). Only a salted PBKDF2-SHA256 hash is stored (`update-pin.json`, mode 600); five wrong PINs lock it for 10 minutes. A correct PIN can only do one thing: run `git up` on the clone CacheDash was installed from (its path comes from `source.json`, written by the installer), as the owner of that clone, with the usual tests, start-up check and rollback. The person clicking can't choose what gets installed. Anyone who can push to your GitHub repository can therefore change what the button installs, so protect that repository (2FA, fine-grained tokens), as you would for `git up`. No PIN set means the button is off.
 - **Changes (acknowledge, mute, test alert, app-inventory upload) must be sent as JSON**, uploads are capped at 30 MB, which stops form-based cross-site requests.
 
-Anyone allowed to connect can see device addresses, device names and download names, and can acknowledge or mute alerts. If that's too broad, use `--allow` to limit it to your IT staff's subnet, or a firewall rule on port 8027. Don't expose port 8027 to the internet.
+Anyone allowed to connect can see device addresses, device names and download names, can acknowledge or mute alerts, and can save or delete saved views (layouts only; they're checked against the list of real widgets before being stored). If that's too broad, use `--allow` to limit it to your IT staff's subnet, or a firewall rule on port 8027. Don't expose port 8027 to the internet.
 
 Known limitation: these checks don't defend against DNS-rebinding attacks. Restricting `--allow` to an IT subnet is the strongest protection.
 
@@ -76,6 +76,7 @@ All in `/usr/local/cachedash`:
 | `apps.db` | App inventory from your MDM: device serial numbers and names, app bundle IDs and versions, and version changes | Inventory until the next sync; changes 60 days |
 | `mosyle.json` | Mosyle API token, admin email and password (mode 600, never sent to the browser). Use a dedicated Mosyle admin account with read-only rights. | — |
 | `update-pin.json` | Salted hash of the Update button PIN (mode 600) | Until changed |
+| `views.json` | Saved dashboard layouts (widget names, order, sizes) | Until deleted |
 | `update-status.json` | Progress of the last update from the dashboard | Until the next one |
 | `alerts.json` | Webhook URL and SMTP password, if you set them (mode 600, never sent to the browser) | — |
 | `clients.csv`, `servers.json` | Your device names and other caches, if you create them | — |

@@ -19,7 +19,7 @@ SRC="${0:A:h}"
 DEST="/usr/local/cachedash"
 PLIST="/Library/LaunchDaemons/local.cachedash.plist"
 PY="/usr/bin/python3"
-CODE=(cachedash.py clientmon.py catalog.py alerts.py incident.py logs.py history.py appupdates.py cluster.py selfupdate.py cachestore.py dashboard.html)
+CODE=(cachedash.py clientmon.py catalog.py alerts.py incident.py logs.py history.py appupdates.py cluster.py selfupdate.py cachestore.py views.py dashboard.html)
 
 SETUP=0; PIN_ONLY=0; ARGS=()
 for x in "$@"; do
